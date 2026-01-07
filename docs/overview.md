@@ -105,3 +105,8 @@ TODO: tri (トライステート型)
 - `anyclock`/`anyreset`:
   - 与えられた引数の型によって `always_ff` などに使われます。
   - Zig の `anytype` のように働きます。
+
+なぜ `anyclock`/`anyreset` があるのか？
+
+- 再利用性を高めるため
+- top モジュールは reset 型を明示する、他のモジュールでは anyclock などを使ってコンパイル時に解決する。
