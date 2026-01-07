@@ -13,6 +13,7 @@ pub const Token = struct {
     };
 
     pub const keywords = std.StaticStringMap(Tag).initComptime(.{
+        .{ "const", .keyword_const },
         .{ "module", .keyword_module },
         .{ "pub", .keyword_pub },
         .{ "input", .keyword_input },
@@ -29,7 +30,7 @@ pub const Token = struct {
     pub const Tag = enum {
         invalid,
         identifier,
-        // string_literal,
+        string_literal,
         // multiline_string_literal_line,
         // char_literal,
         eof,
@@ -100,7 +101,7 @@ pub const Token = struct {
         container_doc_comment,
         // keyword_and,
         // keyword_comptime,
-        // keyword_const,
+        keyword_const,
         keyword_else,
         keyword_enum,
         keyword_module,
@@ -159,6 +160,8 @@ pub const Tokenizer = struct {
         expect_newline,
         identifier,
         builtin,
+        string_literal,
+        string_literal_backslash,
         equal,
         bang,
         pipe,
@@ -204,7 +207,10 @@ pub const Tokenizer = struct {
                     result.loc.start = self.index;
                     continue :state .start;
                 },
-                // TODO: '"'
+                '"' => {
+                    result.tag = .string_literal;
+                    continue :state .string_literal;
+                },
                 // TODO: '\''
                 'a'...'z', 'A'...'Z', '_' => {
                     result.tag = .identifier;
@@ -328,6 +334,32 @@ pub const Tokenizer = struct {
                 }
             },
             // TODO: .backslash
+            .string_literal => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    0 => {
+                        if (self.index != self.buffer.len) {
+                            continue :state .invalid;
+                        } else {
+                            result.tag = .invalid;
+                        }
+                    },
+                    '\n' => result.tag = .invalid,
+                    '\\' => continue :state .string_literal_backslash,
+                    '"' => self.index += 1,
+                    0x01...0x09, 0x0b...0x1f, 0x7f => {
+                        continue :state .invalid;
+                    },
+                    else => continue :state .string_literal,
+                }
+            },
+            .string_literal_backslash => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    0, '\n' => result.tag = .invalid,
+                    else => continue :state .string_literal,
+                }
+            },
             .bang => {
                 self.index += 1;
                 // TODO: switch (self.buffer[self.index])
@@ -338,7 +370,17 @@ pub const Tokenizer = struct {
             },
             .equal => {
                 self.index += 1;
-                // TODO: switch (self.buffer[self.index])
+                switch (self.buffer[self.index]) {
+                    '=' => {
+                        result.tag = .equal_equal;
+                        self.index += 1;
+                    },
+                    '>' => {
+                        result.tag = .equal_angle_bracket_right;
+                        self.index += 1;
+                    },
+                    else => result.tag = .equal,
+                }
             },
             .minus => {
                 self.index += 1;
@@ -469,12 +511,82 @@ test "keywords" {
 test "line comment followed by top-level module" {
     try testTokenize(
         \\// line comment
-        \\module {}
+        \\module Test {}
         \\
     , &.{
         .keyword_module,
+        .identifier,
         .l_brace,
         .r_brace,
+    });
+}
+
+test "invalid token characters" {
+    try testTokenize("#", &.{.invalid});
+    try testTokenize("`", &.{.invalid});
+}
+
+test "invalid literal/comment characters" {
+    try testTokenize("\"\x00\"", &.{.invalid});
+    try testTokenize("`\x00`", &.{.invalid});
+    try testTokenize("//\x00", &.{.invalid});
+    try testTokenize("//\x1f", &.{.invalid});
+    try testTokenize("//\x7f", &.{.invalid});
+}
+
+test "utf8" {
+    try testTokenize("//\xc2\x80", &.{});
+    try testTokenize("//\xf4\x8f\xbf\xbf", &.{});
+}
+
+test "invalid utf8" {
+    try testTokenize("//\x80", &.{});
+    try testTokenize("//\xbf", &.{});
+    try testTokenize("//\xf8", &.{});
+    try testTokenize("//\xff", &.{});
+    try testTokenize("//\xc2\xc0", &.{});
+    try testTokenize("//\xe0", &.{});
+    try testTokenize("//\xf0", &.{});
+    try testTokenize("//\xf0\x90\x80\xc0", &.{});
+}
+
+test "illegal unicode codepoints" {
+    // unicode newline characters.U+0085, U+2028, U+2029
+    try testTokenize("//\xc2\x84", &.{});
+    try testTokenize("//\xc2\x85", &.{});
+    try testTokenize("//\xc2\x86", &.{});
+    try testTokenize("//\xe2\x80\xa7", &.{});
+    try testTokenize("//\xe2\x80\xa8", &.{});
+    try testTokenize("//\xe2\x80\xa9", &.{});
+    try testTokenize("//\xe2\x80\xaa", &.{});
+}
+
+test "string identifier and builtin fns" {
+    // TODO:
+    // try testTokenize(
+    //     \\const @"if" = @import("std");
+    // , &.{
+    //     .keyword_const,
+    //     .identifier,
+    //     .equal,
+    //     .builtin,
+    //     .l_paren,
+    //     .string_literal,
+    //     .r_paren,
+    //     .semicolon,
+    // });
+
+    try testTokenize(
+        \\const foobar = @import("std");
+    , &.{
+        .keyword_const,
+        .identifier,
+        .equal,
+        .builtin,
+        .l_paren,
+        .string_literal,
+        .r_paren,
+        .semicolon,
     });
 }
 
