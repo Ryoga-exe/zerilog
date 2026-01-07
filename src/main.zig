@@ -1,9 +1,12 @@
 const std = @import("std");
-const Allocator = std.mem.Allocator;
-const parse_tokenizer = @import("libs/parse/tokenizer.zig");
-const Tokenizer = parse_tokenizer.Tokenizer;
-const Token = parse_tokenizer.Token;
+const zerilog = @import("zerilog");
+
+const tokenizer_mod = zerilog.tokenizer;
+const Tokenizer = tokenizer_mod.Tokenizer;
+const Token = tokenizer_mod.Token;
 const TokenTag = Token.Tag;
+
+const Allocator = std.mem.Allocator;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -27,11 +30,17 @@ pub fn main() !void {
     var file = try std.fs.cwd().openFile(path, .{});
     defer file.close();
 
-    const source = try file.readToEndAlloc(allocator, 1024 * 1024);
+    var source = try file.readToEndAlloc(allocator, 1024 * 1024);
     defer allocator.free(source);
 
-    var tokenizer = Tokenizer.init(source);
-    var parser = Parser.init(allocator, &tokenizer);
+    const source_len = source.len;
+    source = try allocator.realloc(source, source_len + 1);
+    source[source_len] = 0;
+    const source_bytes = source[0..source_len];
+    const source_sentinel = source[0..source_len :0];
+
+    var tokenizer_state = Tokenizer.init(source_sentinel);
+    var parser = Parser.init(allocator, &tokenizer_state, source_bytes);
 
     const module = try parser.parseModule();
     defer {
@@ -181,16 +190,33 @@ fn parseLogicSugar(name: []const u8) ?TypeKind {
 const Parser = struct {
     allocator: Allocator,
     tokenizer: *Tokenizer,
+    source: []const u8,
     current: Token,
 
-    pub fn init(allocator: Allocator, tokenizer: *Tokenizer) Parser {
+    pub fn init(allocator: Allocator, tokenizer: *Tokenizer, source: []const u8) Parser {
         var p = Parser{
             .allocator = allocator,
             .tokenizer = tokenizer,
+            .source = source,
             .current = undefined,
         };
         p.advance();
         return p;
+    }
+
+    fn lexeme(self: *Parser, tok: Token) []const u8 {
+        return self.source[tok.loc.start..tok.loc.end];
+    }
+
+    fn currentIsIdentifier(self: *Parser, name: []const u8) bool {
+        return self.current.tag == .identifier and std.mem.eql(u8, self.lexeme(self.current), name);
+    }
+
+    fn expectIdentifierKeyword(self: *Parser, name: []const u8) !void {
+        if (!self.currentIsIdentifier(name)) {
+            return error.UnexpectedToken;
+        }
+        self.advance();
     }
 
     fn advance(self: *Parser) void {
@@ -218,14 +244,10 @@ const Parser = struct {
         return false;
     }
 
-    fn lexeme(self: *const Parser, token: Token) []const u8 {
-        return self.tokenizer.slice(token.loc);
-    }
-
     fn parseIntType(self: *Parser) ParserError!TypeKind {
         _ = try self.expect(.l_paren);
 
-        _ = try self.expect(.dot);
+        _ = try self.expect(.period);
         const sign_tok = try self.expect(.identifier);
         const sign = self.lexeme(sign_tok);
 
@@ -240,8 +262,7 @@ const Parser = struct {
 
         _ = try self.expect(.comma);
         const bits_tok = try self.expect(.number_literal);
-        const bits_slice = self.lexeme(bits_tok);
-        const bits = try std.fmt.parseUnsigned(u16, bits_slice, 10);
+        const bits = try std.fmt.parseUnsigned(u16, self.lexeme(bits_tok), 10);
         if (bits == 0) return error.InvalidBitWidth;
 
         _ = try self.expect(.r_paren);
@@ -257,7 +278,7 @@ const Parser = struct {
     fn parseLogicType(self: *Parser) ParserError!TypeKind {
         _ = try self.expect(.l_paren);
 
-        _ = try self.expect(.dot);
+        _ = try self.expect(.period);
         const sign_tok = try self.expect(.identifier);
         const sign = self.lexeme(sign_tok);
 
@@ -272,8 +293,7 @@ const Parser = struct {
 
         _ = try self.expect(.comma);
         const bits_tok = try self.expect(.number_literal);
-        const bits_slice = self.lexeme(bits_tok);
-        const bits = try std.fmt.parseUnsigned(u16, bits_slice, 10);
+        const bits = try std.fmt.parseUnsigned(u16, self.lexeme(bits_tok), 10);
         if (bits == 0) return error.InvalidBitWidth;
 
         _ = try self.expect(.r_paren);
@@ -305,10 +325,14 @@ const Parser = struct {
                     return error.UnknownType;
                 }
             },
-            .at => {
+            .builtin => {
+                const builtin_tok = self.current;
                 self.advance();
-                const builtin_tok = try self.expect(.identifier);
-                const bname = self.lexeme(builtin_tok);
+                const raw_name = self.lexeme(builtin_tok);
+                if (raw_name.len <= 1 or raw_name[0] != '@') {
+                    return error.UnknownBuiltinType;
+                }
+                const bname = raw_name[1..];
 
                 if (std.mem.eql(u8, bname, "Int")) {
                     return self.parseIntType();
@@ -327,14 +351,12 @@ const Parser = struct {
             .identifier => blk: {
                 const tok = self.current;
                 self.advance();
-                const name = self.lexeme(tok);
-                break :blk Expr{ .ident = name };
+                break :blk Expr{ .ident = self.lexeme(tok) };
             },
             .number_literal => blk: {
                 const tok = self.current;
                 self.advance();
-                const literal = self.lexeme(tok);
-                const value = try std.fmt.parseUnsigned(u32, literal, 10);
+                const value = try std.fmt.parseUnsigned(u32, self.lexeme(tok), 10);
                 break :blk Expr{ .number = value };
             },
             else => error.ExpectedExpr,
@@ -380,11 +402,11 @@ const Parser = struct {
     }
 
     fn parseAlwaysBlock(self: *Parser, always_list: *std.ArrayList(AlwaysBlock)) ParserError!void {
-        _ = try self.expect(.keyword_always_ff);
+        try self.expectIdentifierKeyword("always_ff");
         _ = try self.expect(.l_brace);
 
         // if_reset ブロック
-        _ = try self.expect(.keyword_if_reset);
+        try self.expectIdentifierKeyword("if_reset");
         _ = try self.expect(.l_brace);
 
         var reset_list = std.ArrayList(Assignment).empty;
@@ -483,10 +505,12 @@ const Parser = struct {
         defer always_list.deinit(self.allocator);
 
         while (!self.check(.r_brace) and self.current.tag != .eof) {
-            switch (self.current.tag) {
-                .keyword_var => try self.parseVarDecl(&vars_list),
-                .keyword_always_ff => try self.parseAlwaysBlock(&always_list),
-                else => self.advance(), // TODO: comb などは後で
+            if (self.current.tag == .keyword_var) {
+                try self.parseVarDecl(&vars_list);
+            } else if (self.currentIsIdentifier("always_ff")) {
+                try self.parseAlwaysBlock(&always_list);
+            } else {
+                self.advance(); // TODO: comb などは後で
             }
         }
 

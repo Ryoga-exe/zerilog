@@ -1,11 +1,9 @@
-const Reset = ResetAsyncLow;
-const L8 = @Logic(.unsigned, 8);
+const Clock = clock_posedge;
+const Reset = reset_async_low;
 
 pub module Counter(
     clk: input Clock,
     rst: input Reset,
-    en:  input bit,
-    q:   output @Logic(.unsigned, 8),
 ) {
     var r: logic8;
 
