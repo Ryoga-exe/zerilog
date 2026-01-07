@@ -57,9 +57,9 @@ pub const Token = struct {
         // ellipsis3,
         // caret,
         // caret_equal,
-        // plus,
-        // plus_plus,
-        // plus_equal,
+        plus,
+        plus_plus,
+        plus_equal,
         // plus_percent,
         // plus_percent_equal,
         // plus_pipe,
@@ -162,17 +162,38 @@ pub const Tokenizer = struct {
         builtin,
         string_literal,
         string_literal_backslash,
+        // multiline_string_literal_line,
+        // char_literal,
+        // char_literal_backslash,
+        // backslash,
         equal,
         bang,
         pipe,
         minus,
+        // minus_percent,
+        // minus_pipe,
         asterisk,
+        // asterisk_percent,
+        // asterisk_pipe,
         slash,
         line_comment_start,
         line_comment,
         doc_comment_start,
         doc_comment,
         int,
+        // ampersand,
+        // caret,
+        // percent,
+        plus,
+        // plus_percent,
+        // plus_pipe,
+        // angle_bracket_left,
+        // angle_bracket_angle_bracket_left,
+        // angle_bracket_angle_bracket_left_pipe,
+        // angle_bracket_right,
+        // angle_bracket_angle_bracket_right,
+        // period,
+        // period_2,
         saw_at_sign,
         invalid,
     };
@@ -259,7 +280,7 @@ pub const Tokenizer = struct {
                 },
                 // TODO: '%'
                 // TODO: '*'
-                // TODO: '+'
+                '+' => continue :state .plus,
                 // TODO: '<'
                 // TODO: '>'
                 // TODO: '^'
@@ -310,7 +331,11 @@ pub const Tokenizer = struct {
                 self.index += 1;
                 switch (self.buffer[self.index]) {
                     0, '\n' => result.tag = .invalid,
-                    // TODO: '"'
+                    // TODO:
+                    // '"' => {
+                    //     result.tag = .identifier;
+                    //     continue :state .string_literal;
+                    // },
                     'a'...'z', 'A'...'Z', '_' => {
                         result.tag = .builtin;
                         continue :state .builtin;
@@ -322,6 +347,22 @@ pub const Tokenizer = struct {
             .asterisk => {
                 self.index += 1;
                 // TODO: switch (self.buffer[self.index])
+            },
+            .plus => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    '=' => {
+                        result.tag = .plus_equal;
+                        self.index += 1;
+                    },
+                    '+' => {
+                        result.tag = .plus_plus;
+                        self.index += 1;
+                    },
+                    // TODO: '%'
+                    // TODO: '|'
+                    else => result.tag = .plus,
+                }
             },
             .identifier => {
                 self.index += 1;
