@@ -1,5 +1,9 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const parse_tokenizer = @import("libs/parse/tokenizer.zig");
+const Tokenizer = parse_tokenizer.Tokenizer;
+const Token = parse_tokenizer.Token;
+const TokenTag = Token.Tag;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -43,230 +47,6 @@ pub fn main() !void {
     try codegenSv(stdout, module);
     try stdout.flush();
 }
-
-// ======= Lexer =======
-
-const TokenTag = enum {
-    eof,
-    identifier,
-    number,
-
-    kw_pub,
-    kw_module,
-    kw_input,
-    kw_output,
-    kw_inout,
-    kw_var,
-    kw_always_ff,
-    kw_if_reset,
-    kw_else,
-
-    l_paren,
-    r_paren,
-    l_brace,
-    r_brace,
-    l_bracket,
-    r_bracket,
-    colon,
-    comma,
-    at,
-    dot,
-    equal,
-    semicolon,
-};
-
-const Token = struct {
-    tag: TokenTag,
-    lexeme: []const u8,
-    line: usize,
-    column: usize,
-};
-
-const Tokenizer = struct {
-    input: []const u8,
-    index: usize,
-    line: usize,
-    column: usize,
-
-    pub fn init(input: []const u8) Tokenizer {
-        return .{
-            .input = input,
-            .index = 0,
-            .line = 1,
-            .column = 1,
-        };
-    }
-
-    fn peek(self: *Tokenizer) ?u8 {
-        if (self.index >= self.input.len) return null;
-        return self.input[self.index];
-    }
-
-    fn advance(self: *Tokenizer) ?u8 {
-        const c = self.peek() orelse return null;
-        self.index += 1;
-        if (c == '\n') {
-            self.line += 1;
-            self.column = 1;
-        } else {
-            self.column += 1;
-        }
-        return c;
-    }
-
-    fn skipWhitespace(self: *Tokenizer) void {
-        while (true) {
-            const c_opt = self.peek();
-            if (c_opt == null) break;
-            const c = c_opt.?;
-            switch (c) {
-                ' ', '\t', '\r', '\n' => {
-                    _ = self.advance();
-                },
-                else => return,
-            }
-        }
-    }
-
-    fn isIdentStart(c: u8) bool {
-        return std.ascii.isAlphabetic(c) or c == '_';
-    }
-
-    fn isIdentChar(c: u8) bool {
-        return std.ascii.isAlphanumeric(c) or c == '_';
-    }
-
-    pub fn next(self: *Tokenizer) Token {
-        self.skipWhitespace();
-
-        const start_line = self.line;
-        const start_column = self.column;
-
-        const c_opt = self.peek();
-        if (c_opt == null) {
-            return .{
-                .tag = .eof,
-                .lexeme = self.input[self.index..self.index],
-                .line = start_line,
-                .column = start_column,
-            };
-        }
-        const c = c_opt.?;
-
-        // punctuation
-        switch (c) {
-            '(' => {
-                _ = self.advance();
-                return .{ .tag = .l_paren, .lexeme = self.input[self.index - 1 .. self.index], .line = start_line, .column = start_column };
-            },
-            ')' => {
-                _ = self.advance();
-                return .{ .tag = .r_paren, .lexeme = self.input[self.index - 1 .. self.index], .line = start_line, .column = start_column };
-            },
-            '{' => {
-                _ = self.advance();
-                return .{ .tag = .l_brace, .lexeme = self.input[self.index - 1 .. self.index], .line = start_line, .column = start_column };
-            },
-            '}' => {
-                _ = self.advance();
-                return .{ .tag = .r_brace, .lexeme = self.input[self.index - 1 .. self.index], .line = start_line, .column = start_column };
-            },
-            '[' => {
-                _ = self.advance();
-                return .{ .tag = .l_bracket, .lexeme = self.input[self.index - 1 .. self.index], .line = start_line, .column = start_column };
-            },
-            ']' => {
-                _ = self.advance();
-                return .{ .tag = .r_bracket, .lexeme = self.input[self.index - 1 .. self.index], .line = start_line, .column = start_column };
-            },
-            ':' => {
-                _ = self.advance();
-                return .{ .tag = .colon, .lexeme = self.input[self.index - 1 .. self.index], .line = start_line, .column = start_column };
-            },
-            ',' => {
-                _ = self.advance();
-                return .{ .tag = .comma, .lexeme = self.input[self.index - 1 .. self.index], .line = start_line, .column = start_column };
-            },
-            '@' => {
-                _ = self.advance();
-                return .{ .tag = .at, .lexeme = self.input[self.index - 1 .. self.index], .line = start_line, .column = start_column };
-            },
-            '.' => {
-                _ = self.advance();
-                return .{ .tag = .dot, .lexeme = self.input[self.index - 1 .. self.index], .line = start_line, .column = start_column };
-            },
-            '=' => {
-                _ = self.advance();
-                return .{ .tag = .equal, .lexeme = self.input[self.index - 1 .. self.index], .line = start_line, .column = start_column };
-            },
-            ';' => {
-                _ = self.advance();
-                return .{ .tag = .semicolon, .lexeme = self.input[self.index - 1 .. self.index], .line = start_line, .column = start_column };
-            },
-            else => {},
-        }
-
-        // identifier or keyword
-        if (isIdentStart(c)) {
-            const start_index = self.index;
-            _ = self.advance();
-            while (self.peek()) |pc| {
-                if (!isIdentChar(pc)) break;
-                _ = self.advance();
-            }
-            const slice = self.input[start_index..self.index];
-
-            var tag: TokenTag = .identifier;
-            if (std.mem.eql(u8, slice, "pub")) {
-                tag = .kw_pub;
-            } else if (std.mem.eql(u8, slice, "module")) {
-                tag = .kw_module;
-            } else if (std.mem.eql(u8, slice, "input")) {
-                tag = .kw_input;
-            } else if (std.mem.eql(u8, slice, "output")) {
-                tag = .kw_output;
-            } else if (std.mem.eql(u8, slice, "inout")) {
-                tag = .kw_inout;
-            } else if (std.mem.eql(u8, slice, "var")) {
-                tag = .kw_var;
-            } else if (std.mem.eql(u8, slice, "always_ff")) {
-                tag = .kw_always_ff;
-            } else if (std.mem.eql(u8, slice, "if_reset")) {
-                tag = .kw_if_reset;
-            } else if (std.mem.eql(u8, slice, "else")) {
-                tag = .kw_else;
-            }
-
-            return .{
-                .tag = tag,
-                .lexeme = slice,
-                .line = start_line,
-                .column = start_column,
-            };
-        }
-
-        // number
-        if (std.ascii.isDigit(c)) {
-            const start_index = self.index;
-            _ = self.advance();
-            while (self.peek()) |pc| {
-                if (!std.ascii.isDigit(pc)) break;
-                _ = self.advance();
-            }
-            const slice = self.input[start_index..self.index];
-            return .{
-                .tag = .number,
-                .lexeme = slice,
-                .line = start_line,
-                .column = start_column,
-            };
-        }
-
-        // 未知の文字は読み飛ばす
-        _ = self.advance();
-        return self.next();
-    }
-};
 
 // ======= AST & 型 =======
 
@@ -438,24 +218,30 @@ const Parser = struct {
         return false;
     }
 
+    fn lexeme(self: *const Parser, token: Token) []const u8 {
+        return self.tokenizer.slice(token.loc);
+    }
+
     fn parseIntType(self: *Parser) ParserError!TypeKind {
         _ = try self.expect(.l_paren);
 
         _ = try self.expect(.dot);
         const sign_tok = try self.expect(.identifier);
+        const sign = self.lexeme(sign_tok);
 
         var signedness: IntSignedness = undefined;
-        if (std.mem.eql(u8, sign_tok.lexeme, "unsigned")) {
+        if (std.mem.eql(u8, sign, "unsigned")) {
             signedness = .unsigned;
-        } else if (std.mem.eql(u8, sign_tok.lexeme, "signed")) {
+        } else if (std.mem.eql(u8, sign, "signed")) {
             signedness = .signed;
         } else {
             return error.InvalidSignedness;
         }
 
         _ = try self.expect(.comma);
-        const bits_tok = try self.expect(.number);
-        const bits = try std.fmt.parseUnsigned(u16, bits_tok.lexeme, 10);
+        const bits_tok = try self.expect(.number_literal);
+        const bits_slice = self.lexeme(bits_tok);
+        const bits = try std.fmt.parseUnsigned(u16, bits_slice, 10);
         if (bits == 0) return error.InvalidBitWidth;
 
         _ = try self.expect(.r_paren);
@@ -473,19 +259,21 @@ const Parser = struct {
 
         _ = try self.expect(.dot);
         const sign_tok = try self.expect(.identifier);
+        const sign = self.lexeme(sign_tok);
 
         var signedness: IntSignedness = undefined;
-        if (std.mem.eql(u8, sign_tok.lexeme, "unsigned")) {
+        if (std.mem.eql(u8, sign, "unsigned")) {
             signedness = .unsigned;
-        } else if (std.mem.eql(u8, sign_tok.lexeme, "signed")) {
+        } else if (std.mem.eql(u8, sign, "signed")) {
             signedness = .signed;
         } else {
             return error.InvalidSignedness;
         }
 
         _ = try self.expect(.comma);
-        const bits_tok = try self.expect(.number);
-        const bits = try std.fmt.parseUnsigned(u16, bits_tok.lexeme, 10);
+        const bits_tok = try self.expect(.number_literal);
+        const bits_slice = self.lexeme(bits_tok);
+        const bits = try std.fmt.parseUnsigned(u16, bits_slice, 10);
         if (bits == 0) return error.InvalidBitWidth;
 
         _ = try self.expect(.r_paren);
@@ -503,7 +291,7 @@ const Parser = struct {
             .identifier => {
                 const name_tok = self.current;
                 self.advance();
-                const name = name_tok.lexeme;
+                const name = self.lexeme(name_tok);
 
                 if (std.mem.eql(u8, name, "Clock")) {
                     return .clock;
@@ -520,7 +308,7 @@ const Parser = struct {
             .at => {
                 self.advance();
                 const builtin_tok = try self.expect(.identifier);
-                const bname = builtin_tok.lexeme;
+                const bname = self.lexeme(builtin_tok);
 
                 if (std.mem.eql(u8, bname, "Int")) {
                     return self.parseIntType();
@@ -539,12 +327,14 @@ const Parser = struct {
             .identifier => blk: {
                 const tok = self.current;
                 self.advance();
-                break :blk Expr{ .ident = tok.lexeme };
+                const name = self.lexeme(tok);
+                break :blk Expr{ .ident = name };
             },
-            .number => blk: {
+            .number_literal => blk: {
                 const tok = self.current;
                 self.advance();
-                const value = try std.fmt.parseUnsigned(u32, tok.lexeme, 10);
+                const literal = self.lexeme(tok);
+                const value = try std.fmt.parseUnsigned(u32, literal, 10);
                 break :blk Expr{ .number = value };
             },
             else => error.ExpectedExpr,
@@ -552,7 +342,7 @@ const Parser = struct {
     }
 
     fn parseVarDecl(self: *Parser, vars_list: *std.ArrayList(VarDecl)) ParserError!void {
-        _ = try self.expect(.kw_var);
+        _ = try self.expect(.keyword_var);
         const name_tok = try self.expect(.identifier);
         _ = try self.expect(.colon);
         const ty = try self.parseType();
@@ -564,7 +354,7 @@ const Parser = struct {
         _ = try self.expect(.semicolon);
 
         try vars_list.append(self.allocator, .{
-            .name = name_tok.lexeme,
+            .name = self.lexeme(name_tok),
             .ty = ty,
         });
     }
@@ -579,7 +369,7 @@ const Parser = struct {
                 _ = try self.expect(.semicolon);
 
                 try list.append(self.allocator, .{
-                    .name = name_tok.lexeme,
+                    .name = self.lexeme(name_tok),
                     .rhs = rhs,
                 });
             } else {
@@ -590,11 +380,11 @@ const Parser = struct {
     }
 
     fn parseAlwaysBlock(self: *Parser, always_list: *std.ArrayList(AlwaysBlock)) ParserError!void {
-        _ = try self.expect(.kw_always_ff);
+        _ = try self.expect(.keyword_always_ff);
         _ = try self.expect(.l_brace);
 
         // if_reset ブロック
-        _ = try self.expect(.kw_if_reset);
+        _ = try self.expect(.keyword_if_reset);
         _ = try self.expect(.l_brace);
 
         var reset_list = std.ArrayList(Assignment).empty;
@@ -605,7 +395,7 @@ const Parser = struct {
         // else ブロック（任意）
         var normal_list = std.ArrayList(Assignment).empty;
         defer normal_list.deinit(self.allocator);
-        if (self.match(.kw_else)) {
+        if (self.match(.keyword_else)) {
             _ = try self.expect(.l_brace);
             try self.parseAssignList(&normal_list);
             _ = try self.expect(.r_brace);
@@ -624,8 +414,8 @@ const Parser = struct {
 
     pub fn parseModule(self: *Parser) ParserError!Module {
         // 最初の pub/module までスキップ（const Reset = ... などを飛ばす）
-        while (self.current.tag != .kw_module and
-            self.current.tag != .kw_pub and
+        while (self.current.tag != .keyword_module and
+            self.current.tag != .keyword_pub and
             self.current.tag != .eof)
         {
             self.advance();
@@ -633,11 +423,11 @@ const Parser = struct {
         if (self.current.tag == .eof) return error.UnexpectedEof;
 
         // optional 'pub'
-        _ = self.match(.kw_pub);
+        _ = self.match(.keyword_pub);
 
-        _ = try self.expect(.kw_module);
+        _ = try self.expect(.keyword_module);
         const name_tok = try self.expect(.identifier);
-        const name = name_tok.lexeme;
+        const name = self.lexeme(name_tok);
 
         _ = try self.expect(.l_paren);
 
@@ -652,9 +442,9 @@ const Parser = struct {
                 const dir_tok = self.current;
                 var dir: Direction = undefined;
                 switch (dir_tok.tag) {
-                    .kw_input => dir = .input,
-                    .kw_output => dir = .output,
-                    .kw_inout => dir = .inout,
+                    .keyword_input => dir = .input,
+                    .keyword_output => dir = .output,
+                    .keyword_inout => dir = .inout,
                     else => return error.ExpectedDirection,
                 }
                 self.advance();
@@ -662,7 +452,7 @@ const Parser = struct {
                 const ty = try self.parseType();
 
                 try ports_list.append(self.allocator, .{
-                    .name = port_name_tok.lexeme,
+                    .name = self.lexeme(port_name_tok),
                     .dir = dir,
                     .ty = ty,
                 });
@@ -694,8 +484,8 @@ const Parser = struct {
 
         while (!self.check(.r_brace) and self.current.tag != .eof) {
             switch (self.current.tag) {
-                .kw_var => try self.parseVarDecl(&vars_list),
-                .kw_always_ff => try self.parseAlwaysBlock(&always_list),
+                .keyword_var => try self.parseVarDecl(&vars_list),
+                .keyword_always_ff => try self.parseAlwaysBlock(&always_list),
                 else => self.advance(), // TODO: comb などは後で
             }
         }
