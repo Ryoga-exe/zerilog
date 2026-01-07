@@ -7,6 +7,33 @@ Zig 言語をベースにした記法・文法を採用しています。
 
 現在は SystemVerilog へのトランスパイルを目標にしています。
 
+将来的なコマンド：
+
+```shell
+$ zerilog -h
+info: Usage: zerilog [command] [options]
+
+Commands:
+
+  build            Build the target codes corresponding to the current project
+  init             Initialize a Zerilog project in the current directory
+
+  build-sv         Compile to System Verilog from source
+  test             Perform unit testing
+
+  ast-check        Look for simple compile errors in any set of files
+  fmt              Format
+
+General Options:
+
+  -h, --help       Print command-specific usage
+```
+
+`zerilog init` で生成されるのは
+
+- `zerilog.zon`: プロジェクトの設定ファイル
+- `src/top.zer`: sample code
+
 ## 2. Basic Concept
 
 Zig 言語をベースに、SystemVerilog 風の文法でコードを記述します。
