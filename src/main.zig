@@ -1,9 +1,8 @@
 const std = @import("std");
 const zerilog = @import("zerilog");
 
-const tokenizer_mod = zerilog.tokenizer;
-const Tokenizer = tokenizer_mod.Tokenizer;
-const Token = tokenizer_mod.Token;
+const Tokenizer = zerilog.Tokenizer;
+const Token = zerilog.Token;
 const TokenTag = Token.Tag;
 
 const Allocator = std.mem.Allocator;
