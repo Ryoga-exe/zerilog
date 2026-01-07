@@ -78,7 +78,7 @@ pub const Token = struct {
         // asterisk_pipe,
         // asterisk_pipe_equal,
         // arrow,
-        // colon,
+        colon,
         slash,
         slash_equal,
         comma,
@@ -246,6 +246,15 @@ pub const Tokenizer = struct {
                 },
                 ';' => {
                     result.tag = .semicolon;
+                    self.index += 1;
+                },
+                ',' => {
+                    result.tag = .comma;
+                    self.index += 1;
+                },
+                // TODO: '?'
+                ':' => {
+                    result.tag = .colon;
                     self.index += 1;
                 },
                 // TODO: '%'
@@ -503,6 +512,40 @@ pub const Tokenizer = struct {
         return result;
     }
 };
+
+test "basic counter" {
+    try testTokenize(
+        \\/// Basic counter
+        \\pub module Counter(
+        \\    clk: Clock,
+        \\    rst: ResetAsyncLow,
+        \\) {
+        \\    var r: logic8;
+        \\}
+    , &.{
+        .doc_comment,
+        .keyword_pub,
+        .keyword_module,
+        .identifier,
+        .l_paren,
+        .identifier,
+        .colon,
+        .identifier,
+        .comma,
+        .identifier,
+        .colon,
+        .identifier,
+        .comma,
+        .r_paren,
+        .l_brace,
+        .keyword_var,
+        .identifier,
+        .colon,
+        .identifier,
+        .semicolon,
+        .r_brace,
+    });
+}
 
 test "keywords" {
     try testTokenize("pub module else", &.{ .keyword_pub, .keyword_module, .keyword_else });
