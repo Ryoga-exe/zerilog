@@ -21,7 +21,7 @@ pub fn main() !void {
     defer std.process.argsFree(allocator, args);
 
     if (args.len < 2) {
-        std.debug.print("usage: zerilogc <source.zog>\n", .{});
+        std.debug.print("usage: zerilog <source.zer>\n", .{});
         return;
     }
 
