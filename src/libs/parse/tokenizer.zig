@@ -29,25 +29,86 @@ pub const Token = struct {
     pub const Tag = enum {
         invalid,
         identifier,
+        // string_literal,
+        // multiline_string_literal_line,
+        // char_literal,
         eof,
         builtin,
-        number_literal,
-        doc_comment,
         bang,
+        pipe,
+        pipe_pipe,
+        pipe_equal,
+        equal,
+        equal_equal,
+        equal_angle_bracket_right,
+        bang_equal,
         l_paren,
         r_paren,
         semicolon,
+        percent,
+        percent_equal,
         l_brace,
         r_brace,
         l_bracket,
         r_bracket,
+        period,
+        // ellipsis2,
+        // ellipsis3,
+        // caret,
+        // caret_equal,
+        // plus,
+        // plus_plus,
+        // plus_equal,
+        // plus_percent,
+        // plus_percent_equal,
+        // plus_pipe,
+        // plus_pipe_equal,
+        // minus,
+        // minus_equal,
+        // minus_percent,
+        // minus_percent_equal,
+        // minus_pipe,
+        // minus_pipe_equal,
+        // asterisk,
+        // asterisk_equal,
+        // asterisk_asterisk,
+        // asterisk_percent,
+        // asterisk_percent_equal,
+        // asterisk_pipe,
+        // asterisk_pipe_equal,
+        // arrow,
+        // colon,
+        slash,
+        slash_equal,
+        comma,
+        // ampersand,
+        // ampersand_equal,
+        // question_mark,
+        // angle_bracket_left,
+        // angle_bracket_left_equal,
+        // angle_bracket_angle_bracket_left,
+        // angle_bracket_angle_bracket_left_equal,
+        // angle_bracket_angle_bracket_left_pipe,
+        // angle_bracket_angle_bracket_left_pipe_equal,
+        // angle_bracket_right,
+        // angle_bracket_right_equal,
+        // angle_bracket_angle_bracket_right,
+        // angle_bracket_angle_bracket_right_equal,
+        // tilde,
+        number_literal,
+        doc_comment,
+        container_doc_comment,
+        // keyword_and,
+        // keyword_comptime,
+        // keyword_const,
+        keyword_else,
+        keyword_enum,
         keyword_module,
         keyword_pub,
         keyword_input,
         keyword_output,
         keyword_inout,
         keyword_var,
-        keyword_else,
 
         pub fn lexeme(tag: Tag) ?[]const u8 {
             return switch (tag) {
@@ -285,23 +346,105 @@ pub const Tokenizer = struct {
             },
             .slash => {
                 self.index += 1;
-                // TODO: switch (self.buffer[self.index])
+                switch (self.buffer[self.index]) {
+                    '/' => continue :state .line_comment_start,
+                    '=' => {
+                        result.tag = .slash_equal;
+                        self.index += 1;
+                    },
+                    else => result.tag = .slash,
+                }
             },
             .line_comment_start => {
                 self.index += 1;
-                // TODO: switch (self.buffer[self.index])
+                switch (self.buffer[self.index]) {
+                    0 => {
+                        if (self.index != self.buffer.len) {
+                            continue :state .invalid;
+                        } else return .{
+                            .tag = .eof,
+                            .loc = .{
+                                .start = self.index,
+                                .end = self.index,
+                            },
+                        };
+                    },
+                    '!' => {
+                        result.tag = .container_doc_comment;
+                        continue :state .doc_comment;
+                    },
+                    '\n' => {
+                        self.index += 1;
+                        result.loc.start = self.index;
+                        continue :state .start;
+                    },
+                    '/' => continue :state .doc_comment_start,
+                    '\r' => continue :state .expect_newline,
+                    0x01...0x09, 0x0b...0x0c, 0x0e...0x1f, 0x7f => {
+                        continue :state .invalid;
+                    },
+                    else => continue :state .line_comment,
+                }
             },
             .doc_comment_start => {
                 self.index += 1;
-                // TODO: switch (self.buffer[self.index])
+                switch (self.buffer[self.index]) {
+                    0, '\n' => result.tag = .doc_comment,
+                    '\r' => {
+                        if (self.buffer[self.index + 1] == '\n') {
+                            result.tag = .doc_comment;
+                        } else {
+                            continue :state .invalid;
+                        }
+                    },
+                    '/' => continue :state .line_comment,
+                    0x01...0x09, 0x0b...0x0c, 0x0e...0x1f, 0x7f => {
+                        continue :state .invalid;
+                    },
+                    else => {
+                        result.tag = .doc_comment;
+                        continue :state .doc_comment;
+                    },
+                }
             },
             .line_comment => {
                 self.index += 1;
-                // TODO: switch (self.buffer[self.index])
+                switch (self.buffer[self.index]) {
+                    0 => {
+                        if (self.index != self.buffer.len) {
+                            continue :state .invalid;
+                        } else return .{
+                            .tag = .eof,
+                            .loc = .{
+                                .start = self.index,
+                                .end = self.index,
+                            },
+                        };
+                    },
+                    '\n' => {
+                        self.index += 1;
+                        result.loc.start = self.index;
+                        continue :state .start;
+                    },
+                    '\r' => continue :state .expect_newline,
+                    0x01...0x09, 0x0b...0x0c, 0x0e...0x1f, 0x7f => {
+                        continue :state .invalid;
+                    },
+                    else => continue :state .line_comment,
+                }
             },
             .doc_comment => {
                 self.index += 1;
-                // TODO: switch (self.buffer[self.index])
+                switch (self.buffer[self.index]) {
+                    0, '\n' => {},
+                    '\r' => if (self.buffer[self.index + 1] != '\n') {
+                        continue :state .invalid;
+                    },
+                    0x01...0x09, 0x0b...0x0c, 0x0e...0x1f, 0x7f => {
+                        continue :state .invalid;
+                    },
+                    else => continue :state .doc_comment,
+                }
             },
             .int => switch (self.buffer[self.index]) {
                 // TODO: '.'
@@ -321,6 +464,18 @@ pub const Tokenizer = struct {
 
 test "keywords" {
     try testTokenize("pub module else", &.{ .keyword_pub, .keyword_module, .keyword_else });
+}
+
+test "line comment followed by top-level module" {
+    try testTokenize(
+        \\// line comment
+        \\module {}
+        \\
+    , &.{
+        .keyword_module,
+        .l_brace,
+        .r_brace,
+    });
 }
 
 fn testTokenize(source: [:0]const u8, expected_token_tags: []const Token.Tag) !void {
