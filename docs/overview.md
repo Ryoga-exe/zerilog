@@ -52,3 +52,29 @@ endmodule
 ```
 
 このようなコードに変換されます。
+
+### 組込み型
+
+- `logic`:
+  - 幅指定可能な4値データ型です。
+  - 幅は `logic8` のように `logic` の後に数字を書くことで指定できます。
+- `bit`:
+  - 幅指定可能な2値データ型です。
+  - 幅は `bit8` のように、`bit` の後に数字を書くことで指定できます。
+- `slogic`/`sbit`:
+  - MSB は符号ビットとして扱われます。
+  - `slogic8` のように幅を指定します。
+
+TODO: tri (トライステート型)
+
+クロック型やリセット型
+
+- `clock_posedge`/`clock_negedge`:
+  - `clock` 型です。
+  - `always_ff` 内で自動的に使用されます。
+- `reset_async_low`/`reset_async_high`/`reset_sync_low`/`reset_sync_high`:
+  - `reset` 型です。
+  - `always_ff` や `if_reset` で自動的に使用されます。
+- `anyclock`/`anyreset`:
+  - 与えられた引数の型によって `always_ff` などに使われます。
+  - Zig の `anytype` のように働きます。
