@@ -21,6 +21,9 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
+    const clap = b.dependency("clap", .{});
+    exe.root_module.addImport("clap", clap.module("clap"));
+
     b.installArtifact(exe);
 
     const run_step = b.step("run", "Run the app");
