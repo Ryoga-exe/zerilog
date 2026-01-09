@@ -1,6 +1,8 @@
 const std = @import("std");
 const clap = @import("clap");
 
+const cli = @import("cli");
+
 pub fn main() !void {
     var gpa_state = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa_state.deinit();
@@ -36,7 +38,7 @@ pub fn main() !void {
             // TODO:
         },
         .@"build-sv" => {
-            // TODO:
+            try cli.buildSv(gpa, &iter);
         },
         .@"test" => {
             // TODO:
@@ -61,12 +63,12 @@ const SubCommands = enum {
     fmt,
 };
 
-const parsers = .{
-    .command = clap.parsers.enumeration(SubCommands),
-};
-
 const params = clap.parseParamsComptime(
     \\-h, --help  Display this help and exit.
     \\<command>
     \\
 );
+
+const parsers = .{
+    .command = clap.parsers.enumeration(SubCommands),
+};

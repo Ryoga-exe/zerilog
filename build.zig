@@ -7,6 +7,13 @@ pub fn build(b: *std.Build) void {
     const mod = b.addModule("zerilog", .{
         .root_source_file = b.path("src/libs/root.zig"),
         .target = target,
+        .optimize = optimize,
+    });
+
+    const cli = b.addModule("cli", .{
+        .root_source_file = b.path("src/cli/root.zig"),
+        .target = target,
+        .optimize = optimize,
     });
 
     const exe = b.addExecutable(.{
@@ -17,12 +24,14 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .imports = &.{
                 .{ .name = "zerilog", .module = mod },
+                .{ .name = "cli", .module = cli },
             },
         }),
     });
 
     const clap = b.dependency("clap", .{});
     exe.root_module.addImport("clap", clap.module("clap"));
+    cli.addImport("clap", clap.module("clap"));
 
     b.installArtifact(exe);
 
