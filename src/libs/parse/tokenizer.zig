@@ -13,6 +13,7 @@ pub const Token = struct {
     };
 
     pub const keywords = std.StaticStringMap(Tag).initComptime(.{
+        .{ "always_ff", .keyword_always_ff },
         .{ "const", .keyword_const },
         .{ "module", .keyword_module },
         .{ "pub", .keyword_pub },
@@ -101,6 +102,7 @@ pub const Token = struct {
         container_doc_comment,
         // keyword_and,
         // keyword_comptime,
+        keyword_always_ff,
         keyword_const,
         keyword_else,
         keyword_enum,
@@ -148,6 +150,8 @@ pub const Token = struct {
                 .plus => "+",
                 .plus_plus => "++",
                 .plus_equal => "+=",
+
+                .keyword_always_ff => "always_ff",
                 .keyword_module => "module",
                 .keyword_pub => "pub",
                 .keyword_else => "else",
@@ -157,7 +161,12 @@ pub const Token = struct {
         pub fn symbol(tag: Tag) []const u8 {
             return tag.lexeme() orelse switch (tag) {
                 .invalid => "invalid token",
+                .identifier => "an identifier",
+                .string_literal => "a string literal",
                 .eof => "EOF",
+                .builtin => "a builtin function",
+                .number_literal => "a number literal",
+                .doc_comment, .container_doc_comment => "a document comment",
                 else => unreachable,
             };
         }
