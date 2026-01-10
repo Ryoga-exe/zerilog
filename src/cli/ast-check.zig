@@ -65,13 +65,18 @@ const parsers = .{
 
 fn dumpErrors(writer: anytype, ast: zerilog.Ast) !void {
     for (ast.errors) |err| {
-        const token = ast.tokens[@intCast(err.token)];
-        const pos = lineCol(ast.source, token.loc.start);
-        const found = token.tag.symbol();
+        const loc = ast.tokenLocation(err.token);
+        const token_tag = ast.tokenTag(err.token);
+        const token_text = ast.tokenSlice(err.token);
         try writer.print(
-            "error: {s} at {d}:{d} (found {s})\n",
-            .{ err.message, pos.line, pos.column, found },
+            "error: {s} at {d}:{d} (found {s} '{s}')\n",
+            .{ err.message, loc.line, loc.column, token_tag.symbol(), token_text },
         );
+        const line = ast.source[loc.line_start..loc.line_end];
+        try writer.print("  {s}\n", .{line});
+        try writer.writeAll("  ");
+        try writeSpaces(writer, loc.column - 1);
+        try writer.writeAll("^\n");
     }
 }
 
@@ -86,12 +91,13 @@ fn dumpNode(writer: anytype, ast: zerilog.Ast, node_index: zerilog.AstNode.Index
         return;
     }
 
-    const node = ast.nodes[@intCast(node_index)];
+    const idx: usize = @intFromEnum(node_index);
+    const node = ast.nodes.get(idx);
     const tag_name = @tagName(node.tag);
     const token_lexeme = ast.tokenSlice(node.main_token);
 
     try writeIndent(writer, indent);
-    try writer.print("{d}: {s}", .{ node_index, tag_name });
+    try writer.print("{d}: {s}", .{ @intFromEnum(node_index), tag_name });
 
     switch (node.tag) {
         .identifier, .number_literal, .builtin_ref, .enum_literal => {
@@ -121,48 +127,48 @@ fn dumpNode(writer: anytype, ast: zerilog.Ast, node_index: zerilog.AstNode.Index
     switch (node.tag) {
         .root => {
             for (ast.listSlice(node.data.lhs)) |child| {
-                try dumpNode(writer, ast, child, indent + 1);
+                try dumpNode(writer, ast, @enumFromInt(child), indent + 1);
             }
         },
-        .const_decl => try dumpNode(writer, ast, @intCast(node.data.rhs), indent + 1),
-        .var_decl => try dumpNode(writer, ast, @intCast(node.data.rhs), indent + 1),
+        .const_decl => try dumpNode(writer, ast, @enumFromInt(node.data.rhs), indent + 1),
+        .var_decl => try dumpNode(writer, ast, @enumFromInt(node.data.rhs), indent + 1),
         .module_decl, .pub_module_decl => {
             for (ast.listSlice(node.data.lhs)) |child| {
-                try dumpNode(writer, ast, child, indent + 1);
+                try dumpNode(writer, ast, @enumFromInt(child), indent + 1);
             }
-            try dumpNode(writer, ast, @intCast(node.data.rhs), indent + 1);
+            try dumpNode(writer, ast, @enumFromInt(node.data.rhs), indent + 1);
         },
-        .port => try dumpNode(writer, ast, @intCast(node.data.rhs), indent + 1),
+        .port => try dumpNode(writer, ast, @enumFromInt(node.data.rhs), indent + 1),
         .block => {
             for (ast.listSlice(node.data.lhs)) |child| {
-                try dumpNode(writer, ast, child, indent + 1);
+                try dumpNode(writer, ast, @enumFromInt(child), indent + 1);
             }
         },
-        .always_ff, .comb => try dumpNode(writer, ast, @intCast(node.data.lhs), indent + 1),
+        .always_ff, .comb => try dumpNode(writer, ast, @enumFromInt(node.data.lhs), indent + 1),
         .if_stmt => {
-            try dumpNode(writer, ast, @intCast(node.data.lhs), indent + 1);
+            try dumpNode(writer, ast, @enumFromInt(node.data.lhs), indent + 1);
             const branches = ast.listSlice(node.data.rhs);
-            if (branches.len > 0) try dumpNode(writer, ast, branches[0], indent + 1);
-            if (branches.len > 1) try dumpNode(writer, ast, branches[1], indent + 1);
+            if (branches.len > 0) try dumpNode(writer, ast, @enumFromInt(branches[0]), indent + 1);
+            if (branches.len > 1) try dumpNode(writer, ast, @enumFromInt(branches[1]), indent + 1);
         },
         .if_reset => {
-            try dumpNode(writer, ast, @intCast(node.data.lhs), indent + 1);
-            if (node.data.rhs != zerilog.AstNull) {
-                try dumpNode(writer, ast, @intCast(node.data.rhs), indent + 1);
+            try dumpNode(writer, ast, @enumFromInt(node.data.lhs), indent + 1);
+            if (node.data.rhs != zerilog.AstNullIndex) {
+                try dumpNode(writer, ast, @enumFromInt(node.data.rhs), indent + 1);
             }
         },
         .assign, .binary => {
-            try dumpNode(writer, ast, @intCast(node.data.lhs), indent + 1);
-            try dumpNode(writer, ast, @intCast(node.data.rhs), indent + 1);
+            try dumpNode(writer, ast, @enumFromInt(node.data.lhs), indent + 1);
+            try dumpNode(writer, ast, @enumFromInt(node.data.rhs), indent + 1);
         },
         .call => {
-            try dumpNode(writer, ast, @intCast(node.data.lhs), indent + 1);
+            try dumpNode(writer, ast, @enumFromInt(node.data.lhs), indent + 1);
             for (ast.listSlice(node.data.rhs)) |child| {
-                try dumpNode(writer, ast, child, indent + 1);
+                try dumpNode(writer, ast, @enumFromInt(child), indent + 1);
             }
         },
-        .field_access => try dumpNode(writer, ast, @intCast(node.data.lhs), indent + 1),
-        .@"comptime" => try dumpNode(writer, ast, @intCast(node.data.lhs), indent + 1),
+        .field_access => try dumpNode(writer, ast, @enumFromInt(node.data.lhs), indent + 1),
+        .@"comptime" => try dumpNode(writer, ast, @enumFromInt(node.data.lhs), indent + 1),
         else => {},
     }
 }
@@ -174,22 +180,9 @@ fn writeIndent(writer: anytype, indent: usize) !void {
     }
 }
 
-const LineCol = struct {
-    line: usize,
-    column: usize,
-};
-
-fn lineCol(source: []const u8, index: usize) LineCol {
-    var line: usize = 1;
-    var col: usize = 1;
+fn writeSpaces(writer: anytype, count: usize) !void {
     var i: usize = 0;
-    while (i < index and i < source.len) : (i += 1) {
-        if (source[i] == '\n') {
-            line += 1;
-            col = 1;
-        } else {
-            col += 1;
-        }
+    while (i < count) : (i += 1) {
+        try writer.writeAll(" ");
     }
-    return .{ .line = line, .column = col };
 }
