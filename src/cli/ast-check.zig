@@ -119,8 +119,12 @@ fn dumpNode(writer: anytype, ast: zerilog.Ast, node_index: zerilog.AstNode.Index
         .identifier, .number_literal, .builtin_ref, .enum_literal => {
             try writer.print(" {s}", .{token_lexeme});
         },
-        .const_decl, .var_decl => {
-            const name = ast.tokenSlice(@intCast(node.data.lhs));
+        .const_decl => {
+            const name = ast.tokenSlice(node.data.const_decl.name);
+            try writer.print(" {s}", .{name});
+        },
+        .var_decl => {
+            const name = ast.tokenSlice(node.data.var_decl.name);
             try writer.print(" {s}", .{name});
         },
         .module_decl, .pub_module_decl, .port => {
@@ -132,7 +136,7 @@ fn dumpNode(writer: anytype, ast: zerilog.Ast, node_index: zerilog.AstNode.Index
             }
         },
         .field_access => {
-            const name = ast.tokenSlice(@intCast(node.data.rhs));
+            const name = ast.tokenSlice(node.data.field_access.field);
             try writer.print(" .{s}", .{name});
         },
         else => {},
@@ -142,55 +146,54 @@ fn dumpNode(writer: anytype, ast: zerilog.Ast, node_index: zerilog.AstNode.Index
 
     switch (node.tag) {
         .root => {
-            for (ast.listSlice(node.data.lhs)) |child| {
+            for (ast.listSlice(node.data.root.decls)) |child| {
                 try dumpNode(writer, ast, @enumFromInt(child), indent + 1);
             }
         },
-        .const_decl => try dumpNode(writer, ast, @enumFromInt(node.data.rhs), indent + 1),
-        .var_decl => try dumpNode(writer, ast, @enumFromInt(node.data.rhs), indent + 1),
+        .const_decl => try dumpNode(writer, ast, node.data.const_decl.value, indent + 1),
+        .var_decl => try dumpNode(writer, ast, node.data.var_decl.ty, indent + 1),
         .module_decl, .pub_module_decl => {
-            for (ast.listSlice(node.data.lhs)) |child| {
+            for (ast.listSlice(node.data.module_decl.ports)) |child| {
                 try dumpNode(writer, ast, @enumFromInt(child), indent + 1);
             }
-            try dumpNode(writer, ast, @enumFromInt(node.data.rhs), indent + 1);
+            try dumpNode(writer, ast, node.data.module_decl.body, indent + 1);
         },
-        .port => try dumpNode(writer, ast, @enumFromInt(node.data.rhs), indent + 1),
+        .port => try dumpNode(writer, ast, node.data.port.ty, indent + 1),
         .block => {
-            for (ast.listSlice(node.data.lhs)) |child| {
+            for (ast.listSlice(node.data.block.statements)) |child| {
                 try dumpNode(writer, ast, @enumFromInt(child), indent + 1);
             }
         },
-        .always_ff, .comb => try dumpNode(writer, ast, @enumFromInt(node.data.lhs), indent + 1),
+        .always_ff, .comb => try dumpNode(writer, ast, node.data.unary, indent + 1),
         .if_stmt => {
-            try dumpNode(writer, ast, @enumFromInt(node.data.lhs), indent + 1);
-            const branches = ast.listSlice(node.data.rhs);
-            if (branches.len > 0) try dumpNode(writer, ast, @enumFromInt(branches[0]), indent + 1);
-            if (branches.len > 1) {
-                const opt: zerilog.AstNode.OptionalIndex = @enumFromInt(branches[1]);
-                if (opt.unwrap()) |else_index| {
-                    try dumpNode(writer, ast, else_index, indent + 1);
-                }
-            }
-        },
-        .if_reset => {
-            try dumpNode(writer, ast, @enumFromInt(node.data.lhs), indent + 1);
-            const opt: zerilog.AstNode.OptionalIndex = @enumFromInt(node.data.rhs);
-            if (opt.unwrap()) |else_index| {
+            try dumpNode(writer, ast, node.data.if_stmt.cond, indent + 1);
+            try dumpNode(writer, ast, node.data.if_stmt.then_block, indent + 1);
+            if (node.data.if_stmt.else_block.unwrap()) |else_index| {
                 try dumpNode(writer, ast, else_index, indent + 1);
             }
         },
-        .assign, .binary => {
-            try dumpNode(writer, ast, @enumFromInt(node.data.lhs), indent + 1);
-            try dumpNode(writer, ast, @enumFromInt(node.data.rhs), indent + 1);
+        .if_reset => {
+            try dumpNode(writer, ast, node.data.if_reset.then_block, indent + 1);
+            if (node.data.if_reset.else_block.unwrap()) |else_index| {
+                try dumpNode(writer, ast, else_index, indent + 1);
+            }
+        },
+        .assign => {
+            try dumpNode(writer, ast, node.data.assign.target, indent + 1);
+            try dumpNode(writer, ast, node.data.assign.value, indent + 1);
+        },
+        .binary => {
+            try dumpNode(writer, ast, node.data.binary.lhs, indent + 1);
+            try dumpNode(writer, ast, node.data.binary.rhs, indent + 1);
         },
         .call => {
-            try dumpNode(writer, ast, @enumFromInt(node.data.lhs), indent + 1);
-            for (ast.listSlice(node.data.rhs)) |child| {
+            try dumpNode(writer, ast, node.data.call.callee, indent + 1);
+            for (ast.listSlice(node.data.call.args)) |child| {
                 try dumpNode(writer, ast, @enumFromInt(child), indent + 1);
             }
         },
-        .field_access => try dumpNode(writer, ast, @enumFromInt(node.data.lhs), indent + 1),
-        .@"comptime" => try dumpNode(writer, ast, @enumFromInt(node.data.lhs), indent + 1),
+        .field_access => try dumpNode(writer, ast, node.data.field_access.lhs, indent + 1),
+        .@"comptime" => try dumpNode(writer, ast, node.data.unary, indent + 1),
         else => {},
     }
 }

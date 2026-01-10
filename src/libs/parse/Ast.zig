@@ -238,9 +238,21 @@ pub const Node = struct {
         }
     };
 
-    pub const Data = struct {
-        lhs: u32,
-        rhs: u32,
+    pub const Data = union(enum) {
+        none: void,
+        root: struct { decls: u32 },
+        const_decl: struct { name: TokenIndex, value: Node.Index },
+        var_decl: struct { name: TokenIndex, ty: Node.Index },
+        module_decl: struct { ports: u32, body: Node.Index },
+        port: struct { dir: u32, ty: Node.Index },
+        block: struct { statements: u32 },
+        unary: Node.Index,
+        if_stmt: struct { cond: Node.Index, then_block: Node.Index, else_block: Node.OptionalIndex },
+        if_reset: struct { then_block: Node.Index, else_block: Node.OptionalIndex },
+        assign: struct { target: Node.Index, value: Node.Index },
+        binary: struct { lhs: Node.Index, rhs: Node.Index },
+        call: struct { callee: Node.Index, args: u32 },
+        field_access: struct { lhs: Node.Index, field: TokenIndex },
     };
 
     pub const Tag = enum {

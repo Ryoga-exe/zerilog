@@ -20,12 +20,12 @@ pub fn parse(allocator: std.mem.Allocator, source: [:0]const u8) !Ast.Ast {
     }
 
     var parser = Parser.init(allocator, source, tokens.slice());
-    const root = try parser.addNode(.root, 0, .{ .lhs = 0, .rhs = 0 });
+    const root = try parser.addNode(.root, 0, .{ .root = .{ .decls = 0 } });
     const root_list = try parser.parseRootList();
     parser.nodes.set(@intFromEnum(root), .{
         .tag = .root,
         .main_token = 0,
-        .data = .{ .lhs = root_list, .rhs = 0 },
+        .data = .{ .root = .{ .decls = root_list } },
     });
 
     var nodes = parser.nodes;
@@ -185,7 +185,7 @@ const Parser = struct {
         if (self.currentTag() == .keyword_comptime) {
             const comptime_tok = try self.expect(.keyword_comptime);
             const inner = try self.parseTopLevelDecl();
-            return self.addNode(.@"comptime", comptime_tok, .{ .lhs = @intFromEnum(inner), .rhs = 0 });
+            return self.addNode(.@"comptime", comptime_tok, .{ .unary = inner });
         }
 
         return switch (self.currentTag()) {
@@ -195,7 +195,7 @@ const Parser = struct {
                 if (self.currentTag() != .keyword_module) {
                     try self.addError(self.token_index, .expected_module_after_pub, .{ .none = {} });
                     if (self.currentTag() != .eof) self.advance();
-                    break :blk self.addNode(.@"error", self.currentTokenIndex(), .{ .lhs = 0, .rhs = 0 });
+                    break :blk self.addNode(.@"error", self.currentTokenIndex(), .{ .none = {} });
                 }
                 break :blk self.parseModuleDecl(true);
             },
@@ -203,7 +203,7 @@ const Parser = struct {
             else => blk: {
                 try self.addError(self.token_index, .expected_top_level, .{ .none = {} });
                 if (self.currentTag() != .eof) self.advance();
-                break :blk self.addNode(.@"error", self.currentTokenIndex(), .{ .lhs = 0, .rhs = 0 });
+                break :blk self.addNode(.@"error", self.currentTokenIndex(), .{ .none = {} });
             },
         };
     }
@@ -217,7 +217,7 @@ const Parser = struct {
             try self.addErrorExpectedToken(self.token_index, .semicolon, false);
             self.syncToTopLevel();
         }
-        return self.addNode(.const_decl, const_tok, .{ .lhs = name_tok, .rhs = @intFromEnum(value_expr) });
+        return self.addNode(.const_decl, const_tok, .{ .const_decl = .{ .name = name_tok, .value = value_expr } });
     }
 
     fn parseVarDecl(self: *Parser) !Ast.Node.Index {
@@ -229,7 +229,7 @@ const Parser = struct {
             try self.addErrorExpectedToken(self.token_index, .semicolon, false);
             self.syncToStatementEnd();
         }
-        return self.addNode(.var_decl, var_tok, .{ .lhs = name_tok, .rhs = @intFromEnum(ty_expr) });
+        return self.addNode(.var_decl, var_tok, .{ .var_decl = .{ .name = name_tok, .ty = ty_expr } });
     }
 
     fn parseModuleDecl(self: *Parser, is_pub: bool) !Ast.Node.Index {
@@ -257,7 +257,7 @@ const Parser = struct {
         const ports_list = try self.addList(ports.items);
         const body_block = try self.parseBlock();
 
-        return self.addNode(if (is_pub) .pub_module_decl else .module_decl, name_tok, .{ .lhs = ports_list, .rhs = @intFromEnum(body_block) });
+        return self.addNode(if (is_pub) .pub_module_decl else .module_decl, name_tok, .{ .module_decl = .{ .ports = ports_list, .body = body_block } });
     }
 
     fn parsePort(self: *Parser) !Ast.Node.Index {
@@ -274,7 +274,7 @@ const Parser = struct {
         }
 
         const ty_expr = try self.parseExpr();
-        return self.addNode(.port, name_tok, .{ .lhs = @as(u32, @intFromEnum(dir_tag)), .rhs = @intFromEnum(ty_expr) });
+        return self.addNode(.port, name_tok, .{ .port = .{ .dir = @as(u32, @intFromEnum(dir_tag)), .ty = ty_expr } });
     }
 
     fn parseBlock(self: *Parser) std.mem.Allocator.Error!Ast.Node.Index {
@@ -290,14 +290,14 @@ const Parser = struct {
 
         _ = try self.expect(.r_brace);
         const list_index = try self.addList(statements.items);
-        return self.addNode(.block, l_brace, .{ .lhs = list_index, .rhs = 0 });
+        return self.addNode(.block, l_brace, .{ .block = .{ .statements = list_index } });
     }
 
     fn parseStatement(self: *Parser) std.mem.Allocator.Error!Ast.Node.Index {
         if (self.currentTag() == .keyword_comptime) {
             const comptime_tok = try self.expect(.keyword_comptime);
             const inner = try self.parseStatement();
-            return self.addNode(.@"comptime", comptime_tok, .{ .lhs = @intFromEnum(inner), .rhs = 0 });
+            return self.addNode(.@"comptime", comptime_tok, .{ .unary = inner });
         }
 
         return switch (self.currentTag()) {
@@ -312,7 +312,7 @@ const Parser = struct {
             else => blk: {
                 try self.addError(self.token_index, .expected_statement, .{ .none = {} });
                 if (self.currentTag() != .eof) self.advance();
-                break :blk self.addNode(.@"error", self.currentTokenIndex(), .{ .lhs = 0, .rhs = 0 });
+                break :blk self.addNode(.@"error", self.currentTokenIndex(), .{ .none = {} });
             },
         };
     }
@@ -320,13 +320,13 @@ const Parser = struct {
     fn parseAlwaysFF(self: *Parser) !Ast.Node.Index {
         const tok = try self.expect(.keyword_always_ff);
         const block = try self.parseBlock();
-        return self.addNode(.always_ff, tok, .{ .lhs = @intFromEnum(block), .rhs = 0 });
+        return self.addNode(.always_ff, tok, .{ .unary = block });
     }
 
     fn parseComb(self: *Parser) !Ast.Node.Index {
         const tok = try self.expect(.keyword_comb);
         const block = try self.parseBlock();
-        return self.addNode(.comb, tok, .{ .lhs = @intFromEnum(block), .rhs = 0 });
+        return self.addNode(.comb, tok, .{ .unary = block });
     }
 
     fn parseIf(self: *Parser) !Ast.Node.Index {
@@ -340,8 +340,7 @@ const Parser = struct {
             else_block = block.toOptional();
         }
 
-        const list_index = try self.addList(&.{ @intFromEnum(then_block), @intFromEnum(else_block) });
-        return self.addNode(.if_stmt, tok, .{ .lhs = @intFromEnum(cond), .rhs = list_index });
+        return self.addNode(.if_stmt, tok, .{ .if_stmt = .{ .cond = cond, .then_block = then_block, .else_block = else_block } });
     }
 
     fn parseIfReset(self: *Parser) !Ast.Node.Index {
@@ -354,12 +353,12 @@ const Parser = struct {
             else_block = block.toOptional();
         }
 
-        return self.addNode(.if_reset, tok, .{ .lhs = @intFromEnum(then_block), .rhs = @intFromEnum(else_block) });
+        return self.addNode(.if_reset, tok, .{ .if_reset = .{ .then_block = then_block, .else_block = else_block } });
     }
 
     fn parseAssign(self: *Parser) !Ast.Node.Index {
         const name_tok = try self.expect(.identifier);
-        const target = try self.addNode(.identifier, name_tok, .{ .lhs = 0, .rhs = 0 });
+        const target = try self.addNode(.identifier, name_tok, .{ .none = {} });
 
         const op_tok = self.currentTokenIndex();
         const op_tag = self.currentTag();
@@ -377,7 +376,7 @@ const Parser = struct {
             self.syncToStatementEnd();
         }
 
-        return self.addNode(.assign, op_tok, .{ .lhs = @intFromEnum(target), .rhs = @intFromEnum(rhs) });
+        return self.addNode(.assign, op_tok, .{ .assign = .{ .target = target, .value = rhs } });
     }
 
     fn parseExpr(self: *Parser) std.mem.Allocator.Error!Ast.Node.Index {
@@ -394,7 +393,7 @@ const Parser = struct {
             const op_tok = self.currentTokenIndex();
             self.advance();
             const rhs = try self.parseBinaryExpr(prec + 1);
-            lhs = try self.addNode(.binary, op_tok, .{ .lhs = @intFromEnum(lhs), .rhs = @intFromEnum(rhs) });
+            lhs = try self.addNode(.binary, op_tok, .{ .binary = .{ .lhs = lhs, .rhs = rhs } });
         }
         return lhs;
     }
@@ -404,25 +403,24 @@ const Parser = struct {
             .identifier => {
                 const tok = self.currentTokenIndex();
                 self.advance();
-                const node = try self.addNode(.identifier, tok, .{ .lhs = 0, .rhs = 0 });
+                const node = try self.addNode(.identifier, tok, .{ .none = {} });
                 return self.parsePostfix(node);
             },
             .number_literal => {
                 const tok = self.currentTokenIndex();
                 self.advance();
-                return self.addNode(.number_literal, tok, .{ .lhs = 0, .rhs = 0 });
+                return self.addNode(.number_literal, tok, .{ .none = {} });
             },
             .builtin => {
                 const tok = self.currentTokenIndex();
                 self.advance();
-                const node = try self.addNode(.builtin_ref, tok, .{ .lhs = 0, .rhs = 0 });
+                const node = try self.addNode(.builtin_ref, tok, .{ .none = {} });
                 return self.parsePostfix(node);
             },
             .period => {
-                const period_tok = self.currentTokenIndex();
                 self.advance();
                 const name_tok = try self.expect(.identifier);
-                const node = try self.addNode(.enum_literal, name_tok, .{ .lhs = period_tok, .rhs = 0 });
+                const node = try self.addNode(.enum_literal, name_tok, .{ .none = {} });
                 return self.parsePostfix(node);
             },
             .l_paren => {
@@ -434,12 +432,12 @@ const Parser = struct {
             .keyword_comptime => {
                 const comptime_tok = try self.expect(.keyword_comptime);
                 const inner = try self.parsePrimary();
-                return self.addNode(.@"comptime", comptime_tok, .{ .lhs = @intFromEnum(inner), .rhs = 0 });
+                return self.addNode(.@"comptime", comptime_tok, .{ .unary = inner });
             },
             else => {
                 try self.addError(self.token_index, .expected_expression, .{ .none = {} });
                 if (self.currentTag() != .eof) self.advance();
-                return self.addNode(.@"error", self.currentTokenIndex(), .{ .lhs = 0, .rhs = 0 });
+                return self.addNode(.@"error", self.currentTokenIndex(), .{ .none = {} });
             },
         }
     }
@@ -467,12 +465,12 @@ const Parser = struct {
 
                     _ = try self.expect(.r_paren);
                     const args_list = try self.addList(args.items);
-                    expr = try self.addNode(.call, l_paren, .{ .lhs = @intFromEnum(expr), .rhs = args_list });
+                    expr = try self.addNode(.call, l_paren, .{ .call = .{ .callee = expr, .args = args_list } });
                 },
                 .period => {
                     const period_tok = try self.expect(.period);
                     const name_tok = try self.expect(.identifier);
-                    expr = try self.addNode(.field_access, period_tok, .{ .lhs = @intFromEnum(expr), .rhs = name_tok });
+                    expr = try self.addNode(.field_access, period_tok, .{ .field_access = .{ .lhs = expr, .field = name_tok } });
                 },
                 else => return expr,
             }
