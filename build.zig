@@ -32,6 +32,7 @@ pub fn build(b: *std.Build) void {
     const clap = b.dependency("clap", .{});
     exe.root_module.addImport("clap", clap.module("clap"));
     cli.addImport("clap", clap.module("clap"));
+    cli.addImport("zerilog", mod);
 
     b.installArtifact(exe);
 

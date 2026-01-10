@@ -44,7 +44,10 @@ pub fn main() !void {
             // TODO:
         },
         .@"ast-check" => {
-            // TODO:
+            try cli.astCheck(gpa, &iter);
+        },
+        .@"dump-ast" => {
+            try cli.astCheck(gpa, &iter);
         },
         .fmt => {
             // TODO:
@@ -60,6 +63,7 @@ const SubCommands = enum {
     @"build-sv",
     @"test",
     @"ast-check",
+    @"dump-ast",
     fmt,
 };
 
