@@ -1,0 +1,11 @@
+const Word = logic8;
+
+pub module Adder(
+    a: input Word,
+    b: input Word,
+    y: output Word,
+) {
+    comb {
+        y = a + b;
+    }
+}

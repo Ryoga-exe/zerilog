@@ -49,6 +49,9 @@ pub fn main() !void {
         .@"dump-ast" => {
             try cli.astCheck(gpa, &iter);
         },
+        .@"dump-ir" => {
+            try cli.dumpIr(gpa, &iter);
+        },
         .fmt => {
             // TODO:
         },
@@ -64,6 +67,7 @@ const SubCommands = enum {
     @"test",
     @"ast-check",
     @"dump-ast",
+    @"dump-ir",
     fmt,
 };
 

@@ -212,7 +212,7 @@ fn parseTopLevelDecl(p: *@This()) !Ast.Node.Index {
         .keyword_module => p.parseModuleDecl(false),
         else => blk: {
             try p.addError(p.tok_i, .expected_top_level, .{ .none = {} });
-            if (p.currentTag() != .eof) p.advance();
+            p.syncToTopLevel();
             break :blk p.addNode(.@"error", p.currentTokenIndex(), .{ .none = {} });
         },
     };
