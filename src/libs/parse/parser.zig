@@ -88,10 +88,20 @@ const Parser = struct {
         }
     }
 
-    fn addError(self: *Parser, token_index: usize, message: []const u8) !void {
+    fn addError(self: *Parser, token_index: usize, tag: Ast.Error.Tag, extra: Ast.Error.Extra) !void {
         try self.errors.append(self.allocator, .{
+            .tag = tag,
             .token = @intCast(token_index),
-            .message = message,
+            .extra = extra,
+        });
+    }
+
+    fn addErrorExpectedToken(self: *Parser, token_index: usize, expected: Token.Tag, token_is_prev: bool) !void {
+        try self.errors.append(self.allocator, .{
+            .tag = .expected_token,
+            .token = @intCast(token_index),
+            .token_is_prev = token_is_prev,
+            .extra = .{ .expected_tag = expected },
         });
     }
 
@@ -120,9 +130,35 @@ const Parser = struct {
             self.advance();
             return @intCast(idx);
         }
-        try self.addError(idx, tag.symbol());
+        try self.addErrorExpectedToken(idx, tag, false);
         if (self.currentTag() != .eof) self.advance();
         return @intCast(idx);
+    }
+
+    fn syncToTopLevel(self: *Parser) void {
+        while (true) {
+            switch (self.currentTag()) {
+                .keyword_const, .keyword_pub, .keyword_module, .eof => return,
+                .semicolon => {
+                    self.advance();
+                    return;
+                },
+                else => self.advance(),
+            }
+        }
+    }
+
+    fn syncToStatementEnd(self: *Parser) void {
+        while (true) {
+            switch (self.currentTag()) {
+                .semicolon => {
+                    self.advance();
+                    return;
+                },
+                .r_brace, .eof => return,
+                else => self.advance(),
+            }
+        }
     }
 
     fn match(self: *Parser, tag: Token.Tag) bool {
@@ -159,7 +195,7 @@ const Parser = struct {
             .keyword_pub => blk: {
                 _ = try self.expect(.keyword_pub);
                 if (self.currentTag() != .keyword_module) {
-                    try self.addError(self.token_index, "expected 'module' after 'pub'");
+                    try self.addError(self.token_index, .expected_module_after_pub, .{ .none = {} });
                     if (self.currentTag() != .eof) self.advance();
                     break :blk self.addNode(.@"error", self.currentTokenIndex(), .{ .lhs = 0, .rhs = 0 });
                 }
@@ -168,7 +204,7 @@ const Parser = struct {
             .keyword_module => self.parseModuleDecl(false),
             .eof => Ast.null_node,
             else => blk: {
-                try self.addError(self.token_index, "expected top-level declaration");
+                try self.addError(self.token_index, .expected_top_level, .{ .none = {} });
                 if (self.currentTag() != .eof) self.advance();
                 break :blk self.addNode(.@"error", self.currentTokenIndex(), .{ .lhs = 0, .rhs = 0 });
             },
@@ -180,7 +216,10 @@ const Parser = struct {
         const name_tok = try self.expect(.identifier);
         _ = try self.expect(.equal);
         const value_expr = try self.parseExpr();
-        _ = try self.expect(.semicolon);
+        if (!self.match(.semicolon)) {
+            try self.addErrorExpectedToken(self.token_index, .semicolon, false);
+            self.syncToTopLevel();
+        }
         return self.addNode(.const_decl, const_tok, .{ .lhs = name_tok, .rhs = @intFromEnum(value_expr) });
     }
 
@@ -189,7 +228,10 @@ const Parser = struct {
         const name_tok = try self.expect(.identifier);
         _ = try self.expect(.colon);
         const ty_expr = try self.parseExpr();
-        _ = try self.expect(.semicolon);
+        if (!self.match(.semicolon)) {
+            try self.addErrorExpectedToken(self.token_index, .semicolon, false);
+            self.syncToStatementEnd();
+        }
         return self.addNode(.var_decl, var_tok, .{ .lhs = name_tok, .rhs = @intFromEnum(ty_expr) });
     }
 
@@ -229,7 +271,7 @@ const Parser = struct {
         switch (dir_tag) {
             .keyword_input, .keyword_output, .keyword_inout => self.advance(),
             else => {
-                try self.addError(self.token_index, "expected port direction");
+                try self.addError(self.token_index, .expected_direction, .{ .none = {} });
                 if (self.currentTag() != .eof) self.advance();
             },
         }
@@ -273,7 +315,7 @@ const Parser = struct {
             .l_brace => self.parseBlock(),
             .identifier => self.parseAssign(),
             else => blk: {
-                try self.addError(self.token_index, "expected statement");
+                try self.addError(self.token_index, .expected_statement, .{ .none = {} });
                 if (self.currentTag() != .eof) self.advance();
                 break :blk self.addNode(.@"error", self.currentTokenIndex(), .{ .lhs = 0, .rhs = 0 });
             },
@@ -297,12 +339,13 @@ const Parser = struct {
         const cond = try self.parseExpr();
         const then_block = try self.parseBlock();
 
-        var else_block: Ast.Node.Index = Ast.null_node;
+        var else_block: Ast.Node.OptionalIndex = .none;
         if (self.match(.keyword_else)) {
-            else_block = try self.parseBlock();
+            const block = try self.parseBlock();
+            else_block = block.toOptional();
         }
 
-        const list_index = try self.addList(&.{ then_block, else_block });
+        const list_index = try self.addList(&.{ then_block, @enumFromInt(@intFromEnum(else_block)) });
         return self.addNode(.if_stmt, tok, .{ .lhs = @intFromEnum(cond), .rhs = list_index });
     }
 
@@ -328,13 +371,16 @@ const Parser = struct {
         switch (op_tag) {
             .equal, .plus_equal => self.advance(),
             else => {
-                try self.addError(self.token_index, "expected assignment operator");
+                try self.addError(self.token_index, .expected_assignment_op, .{ .none = {} });
                 if (self.currentTag() != .eof) self.advance();
             },
         }
 
         const rhs = try self.parseExpr();
-        _ = try self.expect(.semicolon);
+        if (!self.match(.semicolon)) {
+            try self.addErrorExpectedToken(self.token_index, .semicolon, false);
+            self.syncToStatementEnd();
+        }
 
         return self.addNode(.assign, op_tok, .{ .lhs = @intFromEnum(target), .rhs = @intFromEnum(rhs) });
     }
@@ -396,7 +442,7 @@ const Parser = struct {
                 return self.addNode(.@"comptime", comptime_tok, .{ .lhs = @intFromEnum(inner), .rhs = 0 });
             },
             else => {
-                try self.addError(self.token_index, "expected expression");
+                try self.addError(self.token_index, .expected_expression, .{ .none = {} });
                 if (self.currentTag() != .eof) self.advance();
                 return self.addNode(.@"error", self.currentTokenIndex(), .{ .lhs = 0, .rhs = 0 });
             },

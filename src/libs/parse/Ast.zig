@@ -63,9 +63,27 @@ pub const OptionalTokenOffset = enum(i32) {
 };
 
 pub const Error = struct {
-    token: TokenIndex,
-    message: []const u8,
+    tag: Tag,
+    is_note: bool = false,
     token_is_prev: bool = false,
+    token: TokenIndex,
+    extra: Extra = .{ .none = {} },
+
+    pub const Extra = union {
+        none: void,
+        expected_tag: Token.Tag,
+        offset: usize,
+    };
+
+    pub const Tag = enum {
+        expected_token,
+        expected_top_level,
+        expected_statement,
+        expected_expression,
+        expected_direction,
+        expected_assignment_op,
+        expected_module_after_pub,
+    };
 };
 
 pub const Location = struct {

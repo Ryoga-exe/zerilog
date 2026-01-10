@@ -8,4 +8,5 @@ pub const Ast = ast.Ast;
 pub const AstNode = ast.Node;
 pub const AstNull = ast.null_node;
 pub const AstNullIndex = ast.null_node_index;
+pub const AstError = ast.Error;
 pub const parse = parser.parse;
