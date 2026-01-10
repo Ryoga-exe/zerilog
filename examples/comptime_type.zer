@@ -1,0 +1,16 @@
+comptime const Width = 8;
+const Data = @Logic(.unsigned, 8);
+
+pub module ComptimeType(
+    clk: input clock_posedge,
+) {
+    var r: logic8;
+
+    always_ff {
+        if_reset {
+            r = 0;
+        } else {
+            r += 1;
+        }
+    }
+}

@@ -1,0 +1,18 @@
+const Clock = clock_posedge;
+const Reset = reset_async_low;
+
+pub module CombExample(
+    clk: input Clock,
+    rst: input Reset,
+) {
+    var r: logic8;
+    var enable: logic1;
+
+    comb {
+        if enable {
+            r = 1;
+        } else {
+            r = r + 1;
+        }
+    }
+}
