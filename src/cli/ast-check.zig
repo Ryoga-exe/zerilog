@@ -127,13 +127,26 @@ fn dumpNode(writer: anytype, ast: zerilog.Ast, node_index: zerilog.AstNode.Index
             const name = ast.tokenSlice(node.data.var_decl.name);
             try writer.print(" {s}", .{name});
         },
-        .module_decl, .pub_module_decl, .port => {
+        .module_decl, .pub_module_decl => {
             try writer.print(" {s}", .{token_lexeme});
+        },
+        .port => {
+            const dir_name = switch (@as(u32, node.data.port.dir)) {
+                @intFromEnum(zerilog.Token.Tag.keyword_input) => "input",
+                @intFromEnum(zerilog.Token.Tag.keyword_output) => "output",
+                @intFromEnum(zerilog.Token.Tag.keyword_inout) => "inout",
+                else => "unknown",
+            };
+            try writer.print(" {s}:{s}", .{ token_lexeme, dir_name });
         },
         .assign, .binary => {
             if (token_lexeme.len != 0) {
                 try writer.print(" {s}", .{token_lexeme});
             }
+        },
+        .call => {
+            const arg_count = ast.listSlice(node.data.call.args).len;
+            try writer.print(" args={d}", .{arg_count});
         },
         .field_access => {
             const name = ast.tokenSlice(node.data.field_access.field);
