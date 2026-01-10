@@ -310,9 +310,10 @@ const Parser = struct {
         const tok = try self.expect(.keyword_if_reset);
         const then_block = try self.parseBlock();
 
-        var else_block: Ast.Node.Index = Ast.null_node;
+        var else_block: Ast.Node.OptionalIndex = .none;
         if (self.match(.keyword_else)) {
-            else_block = try self.parseBlock();
+            const block = try self.parseBlock();
+            else_block = block.toOptional();
         }
 
         return self.addNode(.if_reset, tok, .{ .lhs = @intFromEnum(then_block), .rhs = @intFromEnum(else_block) });

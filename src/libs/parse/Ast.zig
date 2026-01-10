@@ -15,6 +15,53 @@ pub const NodeList = std.MultiArrayList(Node);
 
 pub const TokenIndex = u32;
 
+pub const OptionalTokenIndex = enum(u32) {
+    none = std.math.maxInt(u32),
+    _,
+
+    pub fn unwrap(oti: OptionalTokenIndex) ?TokenIndex {
+        return if (oti == .none) null else @intFromEnum(oti);
+    }
+
+    pub fn fromToken(ti: TokenIndex) OptionalTokenIndex {
+        return @enumFromInt(ti);
+    }
+
+    pub fn fromOptional(oti: ?TokenIndex) OptionalTokenIndex {
+        return if (oti) |ti| @enumFromInt(ti) else .none;
+    }
+};
+
+pub const TokenOffset = enum(i32) {
+    zero = 0,
+    _,
+
+    pub fn init(base: TokenIndex, destination: TokenIndex) TokenOffset {
+        const base_i64: i64 = base;
+        const destination_i64: i64 = destination;
+        return @enumFromInt(destination_i64 - base_i64);
+    }
+
+    pub fn toOptional(to: TokenOffset) OptionalTokenOffset {
+        const result: OptionalTokenOffset = @enumFromInt(@intFromEnum(to));
+        std.debug.assert(result != .none);
+        return result;
+    }
+
+    pub fn toAbsolute(offset: TokenOffset, base: TokenIndex) TokenIndex {
+        return @intCast(@as(i64, base) + @intFromEnum(offset));
+    }
+};
+
+pub const OptionalTokenOffset = enum(i32) {
+    none = std.math.maxInt(i32),
+    _,
+
+    pub fn unwrap(oto: OptionalTokenOffset) ?TokenOffset {
+        return if (oto == .none) null else @enumFromInt(@intFromEnum(oto));
+    }
+};
+
 pub const Error = struct {
     token: TokenIndex,
     message: []const u8,
@@ -121,6 +168,56 @@ pub const Node = struct {
     pub const Index = enum(u32) {
         root = 0,
         _,
+
+        pub fn toOptional(i: Index) OptionalIndex {
+            const result: OptionalIndex = @enumFromInt(@intFromEnum(i));
+            std.debug.assert(result != .none);
+            return result;
+        }
+
+        pub fn toOffset(base: Index, destination: Index) Offset {
+            const base_i64: i64 = @intFromEnum(base);
+            const destination_i64: i64 = @intFromEnum(destination);
+            return @enumFromInt(destination_i64 - base_i64);
+        }
+    };
+
+    pub const OptionalIndex = enum(u32) {
+        root = 0,
+        none = std.math.maxInt(u32),
+        _,
+
+        pub fn unwrap(oi: OptionalIndex) ?Index {
+            return if (oi == .none) null else @enumFromInt(@intFromEnum(oi));
+        }
+
+        pub fn fromOptional(oi: ?Index) OptionalIndex {
+            return if (oi) |i| i.toOptional() else .none;
+        }
+    };
+
+    pub const Offset = enum(i32) {
+        zero = 0,
+        _,
+
+        pub fn toOptional(o: Offset) OptionalOffset {
+            const result: OptionalOffset = @enumFromInt(@intFromEnum(o));
+            std.debug.assert(result != .none);
+            return result;
+        }
+
+        pub fn toAbsolute(offset: Offset, base: Index) Index {
+            return @enumFromInt(@as(i64, @intFromEnum(base)) + @intFromEnum(offset));
+        }
+    };
+
+    pub const OptionalOffset = enum(i32) {
+        none = std.math.maxInt(i32),
+        _,
+
+        pub fn unwrap(o: OptionalOffset) ?Offset {
+            return if (o == .none) null else @enumFromInt(@intFromEnum(o));
+        }
     };
 
     pub const Data = struct {

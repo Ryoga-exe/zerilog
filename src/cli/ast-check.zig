@@ -68,6 +68,7 @@ fn dumpErrors(writer: anytype, ast: zerilog.Ast) !void {
         const loc = ast.tokenLocation(err.token);
         const token_tag = ast.tokenTag(err.token);
         const token_text = ast.tokenSlice(err.token);
+        const caret_offset: usize = if (err.token_is_prev) token_text.len else 0;
         try writer.print(
             "error: {s} at {d}:{d} (found {s} '{s}')\n",
             .{ err.message, loc.line, loc.column, token_tag.symbol(), token_text },
@@ -75,7 +76,7 @@ fn dumpErrors(writer: anytype, ast: zerilog.Ast) !void {
         const line = ast.source[loc.line_start..loc.line_end];
         try writer.print("  {s}\n", .{line});
         try writer.writeAll("  ");
-        try writeSpaces(writer, loc.column - 1);
+        try writeSpaces(writer, loc.column - 1 + caret_offset);
         try writer.writeAll("^\n");
     }
 }
@@ -149,12 +150,15 @@ fn dumpNode(writer: anytype, ast: zerilog.Ast, node_index: zerilog.AstNode.Index
             try dumpNode(writer, ast, @enumFromInt(node.data.lhs), indent + 1);
             const branches = ast.listSlice(node.data.rhs);
             if (branches.len > 0) try dumpNode(writer, ast, @enumFromInt(branches[0]), indent + 1);
-            if (branches.len > 1) try dumpNode(writer, ast, @enumFromInt(branches[1]), indent + 1);
+            if (branches.len > 1 and branches[1] != zerilog.AstNullIndex) {
+                try dumpNode(writer, ast, @enumFromInt(branches[1]), indent + 1);
+            }
         },
         .if_reset => {
             try dumpNode(writer, ast, @enumFromInt(node.data.lhs), indent + 1);
-            if (node.data.rhs != zerilog.AstNullIndex) {
-                try dumpNode(writer, ast, @enumFromInt(node.data.rhs), indent + 1);
+            const opt: zerilog.AstNode.OptionalIndex = @enumFromInt(node.data.rhs);
+            if (opt.unwrap()) |else_index| {
+                try dumpNode(writer, ast, else_index, indent + 1);
             }
         },
         .assign, .binary => {
