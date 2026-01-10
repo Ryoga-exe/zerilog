@@ -107,12 +107,6 @@ fn dumpAst(writer: anytype, ast: zerilog.Ast) !void {
 }
 
 fn dumpNode(writer: anytype, ast: zerilog.Ast, node_index: zerilog.AstNode.Index, indent: usize) !void {
-    if (node_index == zerilog.AstNull) {
-        try writeIndent(writer, indent);
-        try writer.writeAll("<null>\n");
-        return;
-    }
-
     const idx: usize = @intFromEnum(node_index);
     const node = ast.nodes.get(idx);
     const tag_name = @tagName(node.tag);

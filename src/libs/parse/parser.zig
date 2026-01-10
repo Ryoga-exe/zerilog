@@ -115,11 +115,11 @@ const Parser = struct {
         return @enumFromInt(@as(u32, @intCast(idx)));
     }
 
-    fn addList(self: *Parser, items: []const Ast.Node.Index) !u32 {
+    fn addList(self: *Parser, items: []const u32) !u32 {
         const start = self.extra_data.items.len;
         try self.extra_data.append(self.allocator, @intCast(items.len));
         for (items) |item| {
-            try self.extra_data.append(self.allocator, @intFromEnum(item));
+            try self.extra_data.append(self.allocator, item);
         }
         return @intCast(start);
     }
@@ -170,14 +170,12 @@ const Parser = struct {
     }
 
     fn parseRootList(self: *Parser) !u32 {
-        var items = std.ArrayList(Ast.Node.Index).empty;
+        var items = std.ArrayList(u32).empty;
         defer items.deinit(self.allocator);
 
         while (self.currentTag() != .eof) {
             const decl = try self.parseTopLevelDecl();
-            if (decl != Ast.null_node) {
-                try items.append(self.allocator, decl);
-            }
+            try items.append(self.allocator, @intFromEnum(decl));
         }
 
         return self.addList(items.items);
@@ -202,7 +200,6 @@ const Parser = struct {
                 break :blk self.parseModuleDecl(true);
             },
             .keyword_module => self.parseModuleDecl(false),
-            .eof => Ast.null_node,
             else => blk: {
                 try self.addError(self.token_index, .expected_top_level, .{ .none = {} });
                 if (self.currentTag() != .eof) self.advance();
@@ -240,13 +237,13 @@ const Parser = struct {
         const name_tok = try self.expect(.identifier);
         _ = try self.expect(.l_paren);
 
-        var ports = std.ArrayList(Ast.Node.Index).empty;
+        var ports = std.ArrayList(u32).empty;
         defer ports.deinit(self.allocator);
 
         if (self.currentTag() != .r_paren) {
             while (true) {
                 const port = try self.parsePort();
-                try ports.append(self.allocator, port);
+                try ports.append(self.allocator, @intFromEnum(port));
                 if (self.match(.comma)) {
                     if (self.currentTag() == .r_paren) break;
                     continue;
@@ -283,14 +280,12 @@ const Parser = struct {
     fn parseBlock(self: *Parser) std.mem.Allocator.Error!Ast.Node.Index {
         const l_brace = try self.expect(.l_brace);
 
-        var statements = std.ArrayList(Ast.Node.Index).empty;
+        var statements = std.ArrayList(u32).empty;
         defer statements.deinit(self.allocator);
 
         while (self.currentTag() != .r_brace and self.currentTag() != .eof) {
             const stmt = try self.parseStatement();
-            if (stmt != Ast.null_node) {
-                try statements.append(self.allocator, stmt);
-            }
+            try statements.append(self.allocator, @intFromEnum(stmt));
         }
 
         _ = try self.expect(.r_brace);
@@ -345,7 +340,7 @@ const Parser = struct {
             else_block = block.toOptional();
         }
 
-        const list_index = try self.addList(&.{ then_block, @enumFromInt(@intFromEnum(else_block)) });
+        const list_index = try self.addList(&.{ @intFromEnum(then_block), @intFromEnum(else_block) });
         return self.addNode(.if_stmt, tok, .{ .lhs = @intFromEnum(cond), .rhs = list_index });
     }
 
@@ -455,13 +450,13 @@ const Parser = struct {
             switch (self.currentTag()) {
                 .l_paren => {
                     const l_paren = try self.expect(.l_paren);
-                    var args = std.ArrayList(Ast.Node.Index).empty;
+                    var args = std.ArrayList(u32).empty;
                     defer args.deinit(self.allocator);
 
                     if (self.currentTag() != .r_paren) {
                         while (true) {
                             const arg = try self.parseExpr();
-                            try args.append(self.allocator, arg);
+                            try args.append(self.allocator, @intFromEnum(arg));
                             if (self.match(.comma)) {
                                 if (self.currentTag() == .r_paren) break;
                                 continue;
