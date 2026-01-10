@@ -15,6 +15,8 @@ errors: std.ArrayList(Ast.Error),
 nodes: Ast.NodeList,
 extra_data: std.ArrayList(u32),
 
+const ExtraIndex = enum(u32) { _ };
+
 pub fn init(gpa: std.mem.Allocator, source: [:0]const u8, tokens: Ast.TokenList.Slice) @This() {
     var p: @This() = .{
         .gpa = gpa,
@@ -30,13 +32,9 @@ pub fn init(gpa: std.mem.Allocator, source: [:0]const u8, tokens: Ast.TokenList.
 }
 
 pub fn parseRoot(p: *@This()) !void {
-    try p.nodes.append(p.gpa, .{
-        .tag = .root,
-        .main_token = 0,
-        .data = .{ .root = .{ .decls = 0 } },
-    });
+    const root_index = try p.reserveNode(.root);
     const root_list = try p.parseRootList();
-    p.nodes.set(0, .{
+    _ = p.setNode(root_index, .{
         .tag = .root,
         .main_token = 0,
         .data = .{ .root = .{ .decls = root_list } },
@@ -94,13 +92,46 @@ fn addNode(p: *@This(), tag: Ast.Node.Tag, main_token: Ast.TokenIndex, data: Ast
     return @enumFromInt(@as(u32, @intCast(idx)));
 }
 
-fn addList(p: *@This(), items: []const u32) !u32 {
-    const start = p.extra_data.items.len;
-    try p.extra_data.append(p.gpa, @intCast(items.len));
-    for (items) |item| {
-        try p.extra_data.append(p.gpa, item);
+fn setNode(p: *@This(), index: usize, elem: Ast.Node) Ast.Node.Index {
+    p.nodes.set(index, elem);
+    return @enumFromInt(@as(u32, @intCast(index)));
+}
+
+fn reserveNode(p: *@This(), tag: Ast.Node.Tag) !usize {
+    try p.nodes.resize(p.gpa, p.nodes.len + 1);
+    p.nodes.items(.tag)[p.nodes.len - 1] = tag;
+    return p.nodes.len - 1;
+}
+
+fn addExtra(p: *@This(), extra: anytype) std.mem.Allocator.Error!ExtraIndex {
+    const fields = std.meta.fields(@TypeOf(extra));
+    try p.extra_data.ensureUnusedCapacity(p.gpa, fields.len);
+    const result: ExtraIndex = @enumFromInt(p.extra_data.items.len);
+    inline for (fields) |field| {
+        const data: u32 = switch (field.type) {
+            Ast.Node.Index,
+            Ast.Node.OptionalIndex,
+            Ast.OptionalTokenIndex,
+            ExtraIndex,
+            => @intFromEnum(@field(extra, field.name)),
+            Ast.TokenIndex,
+            => @field(extra, field.name),
+            u32,
+            => @field(extra, field.name),
+            else => @compileError("unexpected field type"),
+        };
+        p.extra_data.appendAssumeCapacity(data);
     }
-    return @intCast(start);
+    return result;
+}
+
+fn addList(p: *@This(), items: []const u32) !Ast.Node.SubRange {
+    const start = p.extra_data.items.len;
+    try p.extra_data.appendSlice(p.gpa, items);
+    return .{
+        .start = @intCast(start),
+        .end = @intCast(start + items.len),
+    };
 }
 
 fn expect(p: *@This(), tag: Token.Tag) !Ast.TokenIndex {
@@ -148,7 +179,7 @@ fn syncToStatementEnd(p: *@This()) void {
     }
 }
 
-fn parseRootList(p: *@This()) !u32 {
+fn parseRootList(p: *@This()) !Ast.Node.SubRange {
     var items = std.ArrayList(u32).empty;
     defer items.deinit(p.gpa);
 
@@ -421,7 +452,7 @@ fn parsePrimary(p: *@This()) std.mem.Allocator.Error!Ast.Node.Index {
     }
 }
 
-fn parsePostfix(p: *@This(), base: Ast.Node.Index) std.mem.Allocator.Error!Ast.Node.Index {
+    fn parsePostfix(p: *@This(), base: Ast.Node.Index) std.mem.Allocator.Error!Ast.Node.Index {
     var expr = base;
     while (true) {
         switch (p.currentTag()) {

@@ -141,11 +141,8 @@ pub const Ast = struct {
         return self.source[token.loc.start..token.loc.end];
     }
 
-    pub fn listSlice(self: *const Ast, list_index: u32) []const u32 {
-        const idx: usize = @intCast(list_index);
-        const len: usize = @intCast(self.extra_data[idx]);
-        const start = idx + 1;
-        return self.extra_data[start .. start + len];
+    pub fn listSlice(self: *const Ast, range: Node.SubRange) []const u32 {
+        return self.extra_data[@intCast(range.start)..@intCast(range.end)];
     }
 
     pub fn tokenLocation(self: Ast, token_index: TokenIndex) Location {
@@ -238,20 +235,29 @@ pub const Node = struct {
         }
     };
 
+    pub const SubRange = struct {
+        start: u32,
+        end: u32,
+
+        pub fn len(sr: SubRange) usize {
+            return @intCast(sr.end - sr.start);
+        }
+    };
+
     pub const Data = union(enum) {
         none: void,
-        root: struct { decls: u32 },
+        root: struct { decls: SubRange },
         const_decl: struct { name: TokenIndex, value: Node.Index },
         var_decl: struct { name: TokenIndex, ty: Node.Index },
-        module_decl: struct { ports: u32, body: Node.Index },
+        module_decl: struct { ports: SubRange, body: Node.Index },
         port: struct { dir: u32, ty: Node.Index },
-        block: struct { statements: u32 },
+        block: struct { statements: SubRange },
         unary: Node.Index,
         if_stmt: struct { cond: Node.Index, then_block: Node.Index, else_block: Node.OptionalIndex },
         if_reset: struct { then_block: Node.Index, else_block: Node.OptionalIndex },
         assign: struct { target: Node.Index, value: Node.Index },
         binary: struct { lhs: Node.Index, rhs: Node.Index },
-        call: struct { callee: Node.Index, args: u32 },
+        call: struct { callee: Node.Index, args: SubRange },
         field_access: struct { lhs: Node.Index, field: TokenIndex },
     };
 
