@@ -1,8 +1,10 @@
 comptime const Width = 8;
 const Data = @Logic(.unsigned, 8);
+const Reset = reset_async_low;
 
 pub module ComptimeType(
     clk: input clock_posedge,
+    rst: input Reset,
 ) {
     var r: logic8;
 

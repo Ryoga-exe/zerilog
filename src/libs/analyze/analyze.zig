@@ -152,12 +152,22 @@ const Analyzer = struct {
         return if (self.ast.nodeTag(node) == .@"comptime") data.unary else node;
     }
 
+    fn isTypeExprNode(self: *Analyzer, node: Ast.Node.Index) bool {
+        const actual = self.unwrapComptime(node);
+        return switch (self.ast.nodeTag(actual)) {
+            .identifier, .builtin_ref, .call => true,
+            else => false,
+        };
+    }
+
     fn collectAliases(self: *Analyzer, root: Ast.Node.Index) !void {
         const data = self.ast.nodeData(root).root;
         for (self.ast.listSlice(data.decls)) |decl_idx| {
             const decl: Ast.Node.Index = @enumFromInt(decl_idx);
             const actual = self.unwrapComptime(decl);
             if (self.ast.nodeTag(actual) != .const_decl) continue;
+            const value = self.ast.nodeData(actual).const_decl.value;
+            if (!self.isTypeExprNode(value)) continue;
             const name_tok = self.ast.nodeData(actual).const_decl.name;
             const name = self.ast.tokenSlice(name_tok);
             try self.alias_decl.put(name, actual);
@@ -304,6 +314,8 @@ pub fn analyze(allocator: std.mem.Allocator, ast: *const Ast.Ast) !Analysis {
         const tag = ast.nodeTag(actual);
         switch (tag) {
             .const_decl => {
+                const value = ast.nodeData(actual).const_decl.value;
+                if (!analyzer.isTypeExprNode(value)) continue;
                 const name_tok = ast.nodeData(actual).const_decl.name;
                 const name = ast.tokenSlice(name_tok);
                 _ = try analyzer.resolveAlias(name);
