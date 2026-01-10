@@ -267,6 +267,3 @@ pub const Node = struct {
         @"error",
     };
 };
-
-pub const null_node: Node.Index = @enumFromInt(std.math.maxInt(u32));
-pub const null_node_index: u32 = std.math.maxInt(u32);
