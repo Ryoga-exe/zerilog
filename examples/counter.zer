@@ -11,7 +11,7 @@ pub module Counter(
         if_reset {
             r = 0;
         } else {
-            r = r;
+            r += 1;
         }
     }
 }
