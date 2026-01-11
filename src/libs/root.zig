@@ -5,6 +5,7 @@ const analyze_mod = @import("analyze/analyze.zig");
 const ir = @import("ir/ir.zig");
 const lower_mod = @import("ir/lower.zig");
 const emit_sv = @import("codegen/sv/emit.zig");
+const builtin_fn = @import("common/BuiltinFn.zig");
 
 pub const Token = tokenizer.Token;
 pub const Tokenizer = tokenizer.Tokenizer;
@@ -28,3 +29,4 @@ pub const LowerError = lower_mod.Error;
 pub const emitSv = emit_sv.emitSv;
 pub const EmitSvOutput = emit_sv.Output;
 pub const EmitSvError = emit_sv.Error;
+pub const BuiltinFn = builtin_fn;

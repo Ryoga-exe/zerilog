@@ -1,5 +1,6 @@
 const std = @import("std");
 const Ast = @import("../parse/Ast.zig");
+const BuiltinFn = @import("../common/BuiltinFn.zig");
 
 pub const Signedness = enum { unsigned, signed };
 
@@ -94,19 +95,19 @@ pub fn resolveTypeExpr(
             try errors.append(allocator, .{ .token = ast.nodeMainToken(node), .message = "unknown type" });
             return null;
         },
-        .call => {
-            const callee = data.call.callee;
-            if (ast.nodeTag(callee) != .builtin_ref) {
-                try errors.append(allocator, .{ .token = ast.nodeMainToken(node), .message = "expected builtin type constructor" });
-                return null;
-            }
-            const builtin_name = ast.tokenSlice(ast.nodeMainToken(callee));
-            return resolveBuiltinCall(allocator, ast, analysis, builtin_name, data.call.args, errors);
-        },
-        .builtin_ref => {
-            const name = ast.tokenSlice(ast.nodeMainToken(node));
-            return resolveBuiltinCall(allocator, ast, analysis, name, .{ .start = 0, .end = 0 }, errors);
-        },
+            .call => {
+                const callee = data.call.callee;
+                if (ast.nodeTag(callee) != .builtin_ref) {
+                    try errors.append(allocator, .{ .token = ast.nodeMainToken(node), .message = "expected builtin type constructor" });
+                    return null;
+                }
+                const builtin_name = ast.tokenSlice(ast.nodeMainToken(callee));
+                return resolveBuiltinCall(allocator, ast, analysis, ast.nodeMainToken(callee), builtin_name, data.call.args, errors);
+            },
+            .builtin_ref => {
+                const name = ast.tokenSlice(ast.nodeMainToken(node));
+                return resolveBuiltinCall(allocator, ast, analysis, ast.nodeMainToken(node), name, .{ .start = 0, .end = 0 }, errors);
+            },
         else => {
             try errors.append(allocator, .{ .token = ast.nodeMainToken(node), .message = "expected type expression" });
             return null;
@@ -214,11 +215,11 @@ const Analyzer = struct {
                     return null;
                 }
                 const builtin_name = self.ast.tokenSlice(self.ast.nodeMainToken(callee));
-                return self.resolveBuiltinCall(builtin_name, data.call.args);
+                return self.resolveBuiltinCall(self.ast.nodeMainToken(callee), builtin_name, data.call.args);
             },
             .builtin_ref => {
                 const name = self.ast.tokenSlice(self.ast.nodeMainToken(node));
-                return self.resolveBuiltinCall(name, .{ .start = 0, .end = 0 });
+                return self.resolveBuiltinCall(self.ast.nodeMainToken(node), name, .{ .start = 0, .end = 0 });
             },
             else => {
                 try self.addError(self.ast.nodeMainToken(node), "expected type expression");
@@ -227,14 +228,26 @@ const Analyzer = struct {
         }
     }
 
-    fn resolveBuiltinCall(self: *Analyzer, name: []const u8, args: Ast.Node.SubRange) !?TypeId {
-        if (std.mem.eql(u8, name, "@Logic")) {
-            return self.resolveLogicBit(args, .logic);
+    fn resolveBuiltinCall(self: *Analyzer, token: Ast.TokenIndex, name: []const u8, args: Ast.Node.SubRange) !?TypeId {
+        const builtin = BuiltinFn.get(name) orelse {
+            try self.addError(token, "unknown builtin");
+            return null;
+        };
+        if (builtin.kind != .type_ctor) {
+            try self.addError(token, "expected builtin type constructor");
+            return null;
         }
-        if (std.mem.eql(u8, name, "@Bit")) {
-            return self.resolveLogicBit(args, .bit);
+        if (builtin.param_count) |count| {
+            const arg_count = self.ast.listSlice(args).len;
+            if (arg_count != count) {
+                try self.addError(token, "incorrect argument count");
+                return null;
+            }
         }
-        return null;
+        return switch (builtin.tag) {
+            .logic => self.resolveLogicBit(args, .logic),
+            .bit => self.resolveLogicBit(args, .bit),
+        };
     }
 
     fn resolveLogicBit(self: *Analyzer, args: Ast.Node.SubRange, kind: enum { logic, bit }) !?TypeId {
@@ -385,17 +398,30 @@ fn resolveBuiltinCall(
     allocator: std.mem.Allocator,
     ast: *const Ast.Ast,
     analysis: *Analysis,
+    token: Ast.TokenIndex,
     name: []const u8,
     args: Ast.Node.SubRange,
     errors: *std.ArrayList(Error),
 ) !?TypeId {
-    if (std.mem.eql(u8, name, "@Logic")) {
-        return resolveLogicBit(allocator, ast, analysis, args, .logic, errors);
+    const builtin = BuiltinFn.get(name) orelse {
+        try errors.append(allocator, .{ .token = token, .message = "unknown builtin" });
+        return null;
+    };
+    if (builtin.kind != .type_ctor) {
+        try errors.append(allocator, .{ .token = token, .message = "expected builtin type constructor" });
+        return null;
     }
-    if (std.mem.eql(u8, name, "@Bit")) {
-        return resolveLogicBit(allocator, ast, analysis, args, .bit, errors);
+    if (builtin.param_count) |count| {
+        const arg_count = ast.listSlice(args).len;
+        if (arg_count != count) {
+            try errors.append(allocator, .{ .token = token, .message = "incorrect argument count" });
+            return null;
+        }
     }
-    return null;
+    return switch (builtin.tag) {
+        .logic => resolveLogicBit(allocator, ast, analysis, args, .logic, errors),
+        .bit => resolveLogicBit(allocator, ast, analysis, args, .bit, errors),
+    };
 }
 
 fn resolveLogicBit(
