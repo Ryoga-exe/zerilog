@@ -1,0 +1,11 @@
+const Flag = @Bit(.unsigned, 1);
+
+pub module BuiltinCall(
+    in_flag: input Flag,
+) {
+    var out_flag: Flag;
+
+    comb {
+        out_flag = in_flag;
+    }
+}

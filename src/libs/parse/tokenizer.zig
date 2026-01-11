@@ -13,14 +13,20 @@ pub const Token = struct {
     };
 
     pub const keywords = std.StaticStringMap(Tag).initComptime(.{
+        .{ "always_ff", .keyword_always_ff },
+        .{ "comb", .keyword_comb },
+        .{ "comptime", .keyword_comptime },
         .{ "const", .keyword_const },
+        .{ "else", .keyword_else },
+        .{ "enum", .keyword_enum },
+        .{ "if", .keyword_if },
+        .{ "if_reset", .keyword_if_reset },
+        .{ "inout", .keyword_inout },
+        .{ "input", .keyword_input },
         .{ "module", .keyword_module },
         .{ "pub", .keyword_pub },
-        .{ "input", .keyword_input },
         .{ "output", .keyword_output },
-        .{ "inout", .keyword_inout },
         .{ "var", .keyword_var },
-        .{ "else", .keyword_else },
     });
 
     pub fn getKeyword(bytes: []const u8) ?Tag {
@@ -57,14 +63,14 @@ pub const Token = struct {
         // ellipsis3,
         // caret,
         // caret_equal,
-        // plus,
-        // plus_plus,
-        // plus_equal,
+        plus,
+        plus_plus,
+        plus_equal,
         // plus_percent,
         // plus_percent_equal,
         // plus_pipe,
         // plus_pipe_equal,
-        // minus,
+        minus,
         // minus_equal,
         // minus_percent,
         // minus_percent_equal,
@@ -100,10 +106,14 @@ pub const Token = struct {
         doc_comment,
         container_doc_comment,
         // keyword_and,
-        // keyword_comptime,
+        keyword_comptime,
+        keyword_always_ff,
+        keyword_comb,
         keyword_const,
         keyword_else,
         keyword_enum,
+        keyword_if,
+        keyword_if_reset,
         keyword_module,
         keyword_pub,
         keyword_input,
@@ -115,23 +125,71 @@ pub const Token = struct {
             return switch (tag) {
                 .invalid,
                 .identifier,
+                .string_literal,
                 .eof,
                 .builtin,
+                .number_literal,
+                .doc_comment,
+                .container_doc_comment,
                 => null,
 
+                .bang => "!",
+                .pipe => "|",
+                .pipe_pipe => "||",
+                .pipe_equal => "|=",
+                .equal => "=",
+                .equal_equal => "==",
+                .equal_angle_bracket_right => "=>",
+                .bang_equal => "!=",
                 .l_paren => "(",
                 .r_paren => ")",
                 .semicolon => ";",
-                .keyword_module => "module",
-                .keyword_pub => "pub",
+                .percent => "%",
+                .percent_equal => "%=",
+                .l_brace => "{",
+                .r_brace => "}",
+                .l_bracket => "[",
+                .r_bracket => "]",
+                .period => ".",
+                // .ellipsis2 => "..",
+                // .ellipsis3 => "...",
+                // .caret => "^",
+                // .caret_equal => "^=",
+                .plus => "+",
+                .plus_plus => "++",
+                .plus_equal => "+=",
+                .minus => "-",
+                .colon => ":",
+                .slash => "/",
+                .slash_equal => "/=",
+                .comma => ",",
+
+                .keyword_always_ff => "always_ff",
+                .keyword_comb => "comb",
+                .keyword_comptime => "comptime",
+                .keyword_const => "const",
                 .keyword_else => "else",
+                .keyword_enum => "enum",
+                .keyword_if => "if",
+                .keyword_if_reset => "if_reset",
+                .keyword_inout => "inout",
+                .keyword_input => "input",
+                .keyword_module => "module",
+                .keyword_output => "output",
+                .keyword_pub => "pub",
+                .keyword_var => "var",
             };
         }
 
         pub fn symbol(tag: Tag) []const u8 {
             return tag.lexeme() orelse switch (tag) {
                 .invalid => "invalid token",
+                .identifier => "an identifier",
+                .string_literal => "a string literal",
                 .eof => "EOF",
+                .builtin => "a builtin function",
+                .number_literal => "a number literal",
+                .doc_comment, .container_doc_comment => "a document comment",
                 else => unreachable,
             };
         }
@@ -162,17 +220,38 @@ pub const Tokenizer = struct {
         builtin,
         string_literal,
         string_literal_backslash,
+        // multiline_string_literal_line,
+        // char_literal,
+        // char_literal_backslash,
+        // backslash,
         equal,
         bang,
         pipe,
         minus,
+        // minus_percent,
+        // minus_pipe,
         asterisk,
+        // asterisk_percent,
+        // asterisk_pipe,
         slash,
         line_comment_start,
         line_comment,
         doc_comment_start,
         doc_comment,
         int,
+        // ampersand,
+        // caret,
+        // percent,
+        plus,
+        // plus_percent,
+        // plus_pipe,
+        // angle_bracket_left,
+        // angle_bracket_angle_bracket_left,
+        // angle_bracket_angle_bracket_left_pipe,
+        // angle_bracket_right,
+        // angle_bracket_angle_bracket_right,
+        period,
+        period_2,
         saw_at_sign,
         invalid,
     };
@@ -259,13 +338,13 @@ pub const Tokenizer = struct {
                 },
                 // TODO: '%'
                 // TODO: '*'
-                // TODO: '+'
+                '+' => continue :state .plus,
                 // TODO: '<'
                 // TODO: '>'
                 // TODO: '^'
                 // TODO: '\\'
                 // TODO: '~'
-                // TODO: '.'
+                '.' => continue :state .period,
                 '-' => continue :state .minus,
                 '/' => continue :state .slash,
                 // TODO: '&'
@@ -310,7 +389,11 @@ pub const Tokenizer = struct {
                 self.index += 1;
                 switch (self.buffer[self.index]) {
                     0, '\n' => result.tag = .invalid,
-                    // TODO: '"'
+                    // TODO:
+                    // '"' => {
+                    //     result.tag = .identifier;
+                    //     continue :state .string_literal;
+                    // },
                     'a'...'z', 'A'...'Z', '_' => {
                         result.tag = .builtin;
                         continue :state .builtin;
@@ -322,6 +405,22 @@ pub const Tokenizer = struct {
             .asterisk => {
                 self.index += 1;
                 // TODO: switch (self.buffer[self.index])
+            },
+            .plus => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    '=' => {
+                        result.tag = .plus_equal;
+                        self.index += 1;
+                    },
+                    '+' => {
+                        result.tag = .plus_plus;
+                        self.index += 1;
+                    },
+                    // TODO: '%'
+                    // TODO: '|'
+                    else => result.tag = .plus,
+                }
             },
             .identifier => {
                 self.index += 1;
@@ -371,11 +470,27 @@ pub const Tokenizer = struct {
             },
             .bang => {
                 self.index += 1;
-                // TODO: switch (self.buffer[self.index])
+                switch (self.buffer[self.index]) {
+                    '=' => {
+                        result.tag = .bang_equal;
+                        self.index += 1;
+                    },
+                    else => result.tag = .bang,
+                }
             },
             .pipe => {
                 self.index += 1;
-                // TODO: switch (self.buffer[self.index])
+                switch (self.buffer[self.index]) {
+                    '=' => {
+                        result.tag = .pipe_equal;
+                        self.index += 1;
+                    },
+                    '|' => {
+                        result.tag = .pipe_pipe;
+                        self.index += 1;
+                    },
+                    else => result.tag = .pipe,
+                }
             },
             .equal => {
                 self.index += 1;
@@ -393,7 +508,25 @@ pub const Tokenizer = struct {
             },
             .minus => {
                 self.index += 1;
-                // TODO: switch (self.buffer[self.index])
+                result.tag = .minus;
+            },
+            .period => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    // TODO: '.' => continue :state .period_2,
+                    else => result.tag = .period,
+                }
+            },
+            .period_2 => {
+                self.index += 1;
+                // TODO:
+                // switch (self.buffer[self.index]) {
+                //     '.' => {
+                //         result.tag = .ellipsis3;
+                //         self.index += 1;
+                //     },
+                //     else => result.tag = .ellipsis2,
+                // }
             },
             .slash => {
                 self.index += 1;
