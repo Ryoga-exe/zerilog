@@ -1,6 +1,7 @@
 const std = @import("std");
 const Ast = @import("../parse/Ast.zig");
 const BuiltinFn = @import("../common/BuiltinFn.zig");
+const primitives = @import("../common/primitives.zig");
 
 pub const Signedness = enum { unsigned, signed };
 
@@ -83,14 +84,19 @@ pub fn resolveTypeExpr(
     const tag = ast.nodeTag(node);
     const data = ast.nodeData(node);
     switch (tag) {
-        .identifier => {
-            const name = ast.tokenSlice(ast.nodeMainToken(node));
-            if (parseLogicSugar(name)) |ty| {
-                return @as(?TypeId, try analysis.types.getOrAdd(allocator, ty));
-            }
-            if (builtinType(name)) |ty| {
-                return @as(?TypeId, try analysis.types.getOrAdd(allocator, ty));
-            }
+            .identifier => {
+                const name = ast.tokenSlice(ast.nodeMainToken(node));
+                if (primitives.parseLogicBits(name)) |info| {
+                    const signedness: Signedness = switch (info.signedness) { .unsigned => .unsigned, .signed => .signed };
+                    const ty: Type = switch (info.kind) {
+                        .logic => .{ .logic = .{ .signedness = signedness, .bits = info.bits } },
+                        .bit => .{ .bit = .{ .signedness = signedness, .bits = info.bits } },
+                    };
+                    return @as(?TypeId, try analysis.types.getOrAdd(allocator, ty));
+                }
+                if (builtinType(name)) |ty| {
+                    return @as(?TypeId, try analysis.types.getOrAdd(allocator, ty));
+                }
             if (analysis.aliases.get(name)) |id| return id;
             try errors.append(allocator, .{ .token = ast.nodeMainToken(node), .message = "unknown type" });
             return null;
@@ -198,8 +204,13 @@ const Analyzer = struct {
         switch (tag) {
             .identifier => {
                 const name = self.ast.tokenSlice(self.ast.nodeMainToken(node));
-                if (parseLogicSugar(name)) |ty| {
-                return @as(?TypeId, try self.types.getOrAdd(self.gpa, ty));
+                if (primitives.parseLogicBits(name)) |info| {
+                    const signedness: Signedness = switch (info.signedness) { .unsigned => .unsigned, .signed => .signed };
+                    const ty: Type = switch (info.kind) {
+                        .logic => .{ .logic = .{ .signedness = signedness, .bits = info.bits } },
+                        .bit => .{ .bit = .{ .signedness = signedness, .bits = info.bits } },
+                    };
+                    return @as(?TypeId, try self.types.getOrAdd(self.gpa, ty));
                 }
                 if (builtinType(name)) |ty| {
                 return @as(?TypeId, try self.types.getOrAdd(self.gpa, ty));
@@ -367,32 +378,6 @@ fn builtinType(name: []const u8) ?Type {
     return null;
 }
 
-fn parseLogicSugar(name: []const u8) ?Type {
-    return parseBitLogicSugar(name, "logic", .logic, .unsigned) orelse
-        parseBitLogicSugar(name, "slogic", .logic, .signed) orelse
-        parseBitLogicSugar(name, "bit", .bit, .unsigned) orelse
-        parseBitLogicSugar(name, "sbit", .bit, .signed);
-}
-
-fn parseBitLogicSugar(name: []const u8, prefix: []const u8, kind: enum { bit, logic }, signedness: Signedness) ?Type {
-    if (!std.mem.startsWith(u8, name, prefix)) return null;
-    const digits = name[prefix.len..];
-    if (digits.len == 0) {
-        return switch (kind) {
-            .logic => .{ .logic = .{ .signedness = signedness, .bits = 1 } },
-            .bit => .{ .bit = .{ .signedness = signedness, .bits = 1 } },
-        };
-    }
-    for (digits) |ch| {
-        if (!std.ascii.isDigit(ch)) return null;
-    }
-    const bits = std.fmt.parseUnsigned(u32, digits, 10) catch return null;
-    if (bits == 0) return null;
-    return switch (kind) {
-        .logic => .{ .logic = .{ .signedness = signedness, .bits = bits } },
-        .bit => .{ .bit = .{ .signedness = signedness, .bits = bits } },
-    };
-}
 
 fn resolveBuiltinCall(
     allocator: std.mem.Allocator,
