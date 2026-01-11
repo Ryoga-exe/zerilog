@@ -444,6 +444,8 @@ fn parsePrimary(p: *@This()) std.mem.Allocator.Error!Ast.Node.Index {
             const inner = try p.parsePrimary();
             return p.addNode(.@"comptime", comptime_tok, .{ .unary = inner });
         },
+        .keyword_if => return p.parseIfExpr(),
+        .keyword_switch => return p.parseSwitchExpr(),
         else => {
             try p.addError(p.tok_i, .expected_expression, .{ .none = {} });
             if (p.currentTag() != .eof) p.advance();
@@ -489,8 +491,66 @@ fn parsePrimary(p: *@This()) std.mem.Allocator.Error!Ast.Node.Index {
 
 fn precedence(tag: Token.Tag) u8 {
     return switch (tag) {
-        .equal_equal => 1,
-        .plus, .minus => 2,
+        .equal_equal, .bang_equal => 1,
+        .angle_bracket_left, .angle_bracket_left_equal, .angle_bracket_right, .angle_bracket_right_equal => 2,
+        .plus, .minus => 3,
+        .asterisk, .slash, .percent => 4,
         else => 0,
     };
+}
+
+fn parseIfExpr(p: *@This()) std.mem.Allocator.Error!Ast.Node.Index {
+    const tok = try p.expect(.keyword_if);
+    var cond: Ast.Node.Index = undefined;
+    if (p.match(.l_paren)) {
+        cond = try p.parseExpr();
+        _ = try p.expect(.r_paren);
+    } else {
+        cond = try p.parseExpr();
+    }
+    const then_expr = try p.parseExpr();
+    _ = try p.expect(.keyword_else);
+    const else_expr = try p.parseExpr();
+    return p.addNode(.if_expr, tok, .{ .if_expr = .{ .cond = cond, .then_expr = then_expr, .else_expr = else_expr } });
+}
+
+fn parseSwitchExpr(p: *@This()) std.mem.Allocator.Error!Ast.Node.Index {
+    const tok = try p.expect(.keyword_switch);
+    var cond: Ast.Node.Index = undefined;
+    if (p.match(.l_paren)) {
+        cond = try p.parseExpr();
+        _ = try p.expect(.r_paren);
+    } else {
+        cond = try p.parseExpr();
+    }
+    _ = try p.expect(.l_brace);
+
+    var cases = std.ArrayList(u32).empty;
+    defer cases.deinit(p.gpa);
+    var else_expr: Ast.Node.OptionalIndex = .none;
+
+    while (p.currentTag() != .r_brace and p.currentTag() != .eof) {
+        if (p.currentTag() == .keyword_else) {
+            _ = try p.expect(.keyword_else);
+            _ = try p.expect(.equal_angle_bracket_right);
+            const expr = try p.parseExpr();
+            else_expr = expr.toOptional();
+        } else {
+            const value_expr = try p.parseExpr();
+            _ = try p.expect(.equal_angle_bracket_right);
+            const body_expr = try p.parseExpr();
+            const case_node = try p.addNode(.switch_case, p.currentTokenIndex(), .{ .switch_case = .{ .value = value_expr, .expr = body_expr } });
+            try cases.append(p.gpa, @intFromEnum(case_node));
+        }
+
+        if (p.match(.comma)) {
+            if (p.currentTag() == .r_brace) break;
+            continue;
+        }
+        break;
+    }
+
+    _ = try p.expect(.r_brace);
+    const case_list = try p.addList(cases.items);
+    return p.addNode(.switch_expr, tok, .{ .switch_expr = .{ .cond = cond, .cases = case_list, .else_expr = else_expr } });
 }

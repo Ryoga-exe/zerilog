@@ -21,6 +21,7 @@ pub const Token = struct {
         .{ "enum", .keyword_enum },
         .{ "if", .keyword_if },
         .{ "if_reset", .keyword_if_reset },
+        .{ "switch", .keyword_switch },
         .{ "inout", .keyword_inout },
         .{ "input", .keyword_input },
         .{ "module", .keyword_module },
@@ -76,7 +77,7 @@ pub const Token = struct {
         // minus_percent_equal,
         // minus_pipe,
         // minus_pipe_equal,
-        // asterisk,
+        asterisk,
         // asterisk_equal,
         // asterisk_asterisk,
         // asterisk_percent,
@@ -91,14 +92,14 @@ pub const Token = struct {
         // ampersand,
         // ampersand_equal,
         // question_mark,
-        // angle_bracket_left,
-        // angle_bracket_left_equal,
+        angle_bracket_left,
+        angle_bracket_left_equal,
         // angle_bracket_angle_bracket_left,
         // angle_bracket_angle_bracket_left_equal,
         // angle_bracket_angle_bracket_left_pipe,
         // angle_bracket_angle_bracket_left_pipe_equal,
-        // angle_bracket_right,
-        // angle_bracket_right_equal,
+        angle_bracket_right,
+        angle_bracket_right_equal,
         // angle_bracket_angle_bracket_right,
         // angle_bracket_angle_bracket_right_equal,
         // tilde,
@@ -114,6 +115,7 @@ pub const Token = struct {
         keyword_enum,
         keyword_if,
         keyword_if_reset,
+        keyword_switch,
         keyword_module,
         keyword_pub,
         keyword_input,
@@ -159,10 +161,15 @@ pub const Token = struct {
                 .plus_plus => "++",
                 .plus_equal => "+=",
                 .minus => "-",
+                .asterisk => "*",
                 .colon => ":",
                 .slash => "/",
                 .slash_equal => "/=",
                 .comma => ",",
+                .angle_bracket_left => "<",
+                .angle_bracket_left_equal => "<=",
+                .angle_bracket_right => ">",
+                .angle_bracket_right_equal => ">=",
 
                 .keyword_always_ff => "always_ff",
                 .keyword_comb => "comb",
@@ -172,6 +179,7 @@ pub const Token = struct {
                 .keyword_enum => "enum",
                 .keyword_if => "if",
                 .keyword_if_reset => "if_reset",
+                .keyword_switch => "switch",
                 .keyword_inout => "inout",
                 .keyword_input => "input",
                 .keyword_module => "module",
@@ -228,6 +236,8 @@ pub const Tokenizer = struct {
         bang,
         pipe,
         minus,
+        angle_bracket_left,
+        angle_bracket_right,
         // minus_percent,
         // minus_pipe,
         asterisk,
@@ -337,10 +347,10 @@ pub const Tokenizer = struct {
                     self.index += 1;
                 },
                 // TODO: '%'
-                // TODO: '*'
+                '*' => continue :state .asterisk,
                 '+' => continue :state .plus,
-                // TODO: '<'
-                // TODO: '>'
+                '<' => continue :state .angle_bracket_left,
+                '>' => continue :state .angle_bracket_right,
                 // TODO: '^'
                 // TODO: '\\'
                 // TODO: '~'
@@ -404,7 +414,27 @@ pub const Tokenizer = struct {
             // TODO: .ampersand
             .asterisk => {
                 self.index += 1;
-                // TODO: switch (self.buffer[self.index])
+                result.tag = .asterisk;
+            },
+            .angle_bracket_left => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    '=' => {
+                        result.tag = .angle_bracket_left_equal;
+                        self.index += 1;
+                    },
+                    else => result.tag = .angle_bracket_left,
+                }
+            },
+            .angle_bracket_right => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    '=' => {
+                        result.tag = .angle_bracket_right_equal;
+                        self.index += 1;
+                    },
+                    else => result.tag = .angle_bracket_right,
+                }
             },
             .plus => {
                 self.index += 1;

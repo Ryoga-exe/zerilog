@@ -127,6 +127,27 @@ pub fn resolveTypeExpr(
             const name = ast.tokenSlice(ast.nodeMainToken(node));
             return resolveBuiltinCall(allocator, ast, analysis, ast.nodeMainToken(node), name, .{ .start = 0, .end = 0 }, errors);
         },
+        .if_expr => {
+            const cond = try evalComptimeBool(allocator, ast, analysis, data.if_expr.cond, errors, "expected comptime condition") orelse return null;
+            const branch = if (cond) data.if_expr.then_expr else data.if_expr.else_expr;
+            return resolveTypeExpr(allocator, ast, analysis, branch, errors);
+        },
+        .switch_expr => {
+            const cond_value = try evalComptimeInt(allocator, ast, analysis, data.switch_expr.cond, errors, "expected comptime int") orelse return null;
+            for (ast.listSlice(data.switch_expr.cases)) |case_idx| {
+                const case_node: Ast.Node.Index = @enumFromInt(case_idx);
+                const case_data = ast.nodeData(case_node).switch_case;
+                const case_value = try evalComptimeInt(allocator, ast, analysis, case_data.value, errors, "expected comptime int") orelse return null;
+                if (case_value == cond_value) {
+                    return resolveTypeExpr(allocator, ast, analysis, case_data.expr, errors);
+                }
+            }
+            if (data.switch_expr.else_expr.unwrap()) |else_expr| {
+                return resolveTypeExpr(allocator, ast, analysis, else_expr, errors);
+            }
+            try errors.append(allocator, .{ .token = ast.nodeMainToken(node), .message = "switch is missing else" });
+            return null;
+        },
         else => {
             try errors.append(allocator, .{ .token = ast.nodeMainToken(node), .message = "expected type expression" });
             return null;
@@ -220,6 +241,27 @@ const Analyzer = struct {
                 try self.addError(self.ast.nodeMainToken(actual), "unknown comptime value");
                 return null;
             },
+            .if_expr => {
+                const cond = try self.evalComptimeBool(self.ast.nodeData(actual).if_expr.cond, "expected comptime condition") orelse return null;
+                const branch = if (cond) self.ast.nodeData(actual).if_expr.then_expr else self.ast.nodeData(actual).if_expr.else_expr;
+                return self.evalComptimeValue(branch);
+            },
+            .switch_expr => {
+                const cond_value = try self.evalComptimeInt(self.ast.nodeData(actual).switch_expr.cond, "expected comptime int") orelse return null;
+                for (self.ast.listSlice(self.ast.nodeData(actual).switch_expr.cases)) |case_idx| {
+                    const case_node: Ast.Node.Index = @enumFromInt(case_idx);
+                    const case_data = self.ast.nodeData(case_node).switch_case;
+                    const case_value = try self.evalComptimeInt(case_data.value, "expected comptime int") orelse return null;
+                    if (case_value == cond_value) {
+                        return self.evalComptimeValue(case_data.expr);
+                    }
+                }
+                if (self.ast.nodeData(actual).switch_expr.else_expr.unwrap()) |else_expr| {
+                    return self.evalComptimeValue(else_expr);
+                }
+                try self.addError(self.ast.nodeMainToken(actual), "switch is missing else");
+                return null;
+            },
             .binary => {
                 const int_value = try self.evalComptimeInt(actual, "expected comptime int") orelse return null;
                 return .{ .int = int_value };
@@ -234,6 +276,29 @@ const Analyzer = struct {
                 return null;
             },
         }
+    }
+
+    fn evalComptimeBool(self: *Analyzer, node: Ast.Node.Index, err_msg: []const u8) std.mem.Allocator.Error!?bool {
+        const actual = self.unwrapComptime(node);
+        if (self.ast.nodeTag(actual) == .binary) {
+            const data = self.ast.nodeData(actual).binary;
+            const op_tag = self.ast.tokenTag(self.ast.nodeMainToken(actual));
+            if (op_tag == .equal_equal or op_tag == .bang_equal or op_tag == .angle_bracket_left or op_tag == .angle_bracket_left_equal or op_tag == .angle_bracket_right or op_tag == .angle_bracket_right_equal) {
+                const lhs = try self.evalComptimeInt(data.lhs, err_msg) orelse return null;
+                const rhs = try self.evalComptimeInt(data.rhs, err_msg) orelse return null;
+                return switch (op_tag) {
+                    .equal_equal => lhs == rhs,
+                    .bang_equal => lhs != rhs,
+                    .angle_bracket_left => lhs < rhs,
+                    .angle_bracket_left_equal => lhs <= rhs,
+                    .angle_bracket_right => lhs > rhs,
+                    .angle_bracket_right_equal => lhs >= rhs,
+                    else => unreachable,
+                };
+            }
+        }
+        const value = try self.evalComptimeInt(actual, err_msg) orelse return null;
+        return value != 0;
     }
 
     fn evalComptimeInt(self: *Analyzer, node: Ast.Node.Index, err_msg: []const u8) std.mem.Allocator.Error!?u64 {
@@ -274,11 +339,50 @@ const Analyzer = struct {
                         try self.addError(self.ast.nodeMainToken(actual), "comptime int underflow");
                         return null;
                     },
+                    .asterisk => std.math.mul(u64, lhs, rhs) catch {
+                        try self.addError(self.ast.nodeMainToken(actual), "comptime int overflow");
+                        return null;
+                    },
+                    .slash => {
+                        if (rhs == 0) {
+                            try self.addError(self.ast.nodeMainToken(actual), "comptime division by zero");
+                            return null;
+                        }
+                        return lhs / rhs;
+                    },
+                    .percent => {
+                        if (rhs == 0) {
+                            try self.addError(self.ast.nodeMainToken(actual), "comptime division by zero");
+                            return null;
+                        }
+                        return lhs % rhs;
+                    },
                     else => {
                         try self.addError(self.ast.nodeMainToken(actual), "unsupported comptime operator");
                         return null;
                     },
                 };
+            },
+            .if_expr => {
+                const cond = try self.evalComptimeBool(self.ast.nodeData(actual).if_expr.cond, err_msg) orelse return null;
+                const branch = if (cond) self.ast.nodeData(actual).if_expr.then_expr else self.ast.nodeData(actual).if_expr.else_expr;
+                return self.evalComptimeInt(branch, err_msg);
+            },
+            .switch_expr => {
+                const cond_value = try self.evalComptimeInt(self.ast.nodeData(actual).switch_expr.cond, err_msg) orelse return null;
+                for (self.ast.listSlice(self.ast.nodeData(actual).switch_expr.cases)) |case_idx| {
+                    const case_node: Ast.Node.Index = @enumFromInt(case_idx);
+                    const case_data = self.ast.nodeData(case_node).switch_case;
+                    const case_value = try self.evalComptimeInt(case_data.value, err_msg) orelse return null;
+                    if (case_value == cond_value) {
+                        return self.evalComptimeInt(case_data.expr, err_msg);
+                    }
+                }
+                if (self.ast.nodeData(actual).switch_expr.else_expr.unwrap()) |else_expr| {
+                    return self.evalComptimeInt(else_expr, err_msg);
+                }
+                try self.addError(self.ast.nodeMainToken(actual), "switch is missing else");
+                return null;
             },
             else => {
                 try self.addError(self.ast.nodeMainToken(actual), err_msg);
@@ -314,6 +418,30 @@ const Analyzer = struct {
                     }
                 }
                 try self.addError(self.ast.nodeMainToken(node), "unknown type");
+                return null;
+            },
+            .if_expr => {
+                if (try self.evalComptimeValue(node)) |value| {
+                    switch (value) {
+                        .@"type" => |id| return id,
+                        .int => {
+                            try self.addError(self.ast.nodeMainToken(node), "expected type");
+                            return null;
+                        },
+                    }
+                }
+                return null;
+            },
+            .switch_expr => {
+                if (try self.evalComptimeValue(node)) |value| {
+                    switch (value) {
+                        .@"type" => |id| return id,
+                        .int => {
+                            try self.addError(self.ast.nodeMainToken(node), "expected type");
+                            return null;
+                        },
+                    }
+                }
                 return null;
             },
             .call => {
@@ -563,6 +691,36 @@ fn parseBits(
     return @intCast(value);
 }
 
+fn evalComptimeBool(
+    allocator: std.mem.Allocator,
+    ast: *const Ast.Ast,
+    analysis: *Analysis,
+    node: Ast.Node.Index,
+    errors: *std.ArrayList(Error),
+    err_msg: []const u8,
+) std.mem.Allocator.Error!?bool {
+    const actual = if (ast.nodeTag(node) == .@"comptime") ast.nodeData(node).unary else node;
+    if (ast.nodeTag(actual) == .binary) {
+        const data = ast.nodeData(actual).binary;
+        const op_tag = ast.tokenTag(ast.nodeMainToken(actual));
+        if (op_tag == .equal_equal or op_tag == .bang_equal or op_tag == .angle_bracket_left or op_tag == .angle_bracket_left_equal or op_tag == .angle_bracket_right or op_tag == .angle_bracket_right_equal) {
+            const lhs = try evalComptimeInt(allocator, ast, analysis, data.lhs, errors, err_msg) orelse return null;
+            const rhs = try evalComptimeInt(allocator, ast, analysis, data.rhs, errors, err_msg) orelse return null;
+            return switch (op_tag) {
+                .equal_equal => lhs == rhs,
+                .bang_equal => lhs != rhs,
+                .angle_bracket_left => lhs < rhs,
+                .angle_bracket_left_equal => lhs <= rhs,
+                .angle_bracket_right => lhs > rhs,
+                .angle_bracket_right_equal => lhs >= rhs,
+                else => unreachable,
+            };
+        }
+    }
+    const value = try evalComptimeInt(allocator, ast, analysis, actual, errors, err_msg) orelse return null;
+    return value != 0;
+}
+
 fn evalComptimeInt(
     allocator: std.mem.Allocator,
     ast: *const Ast.Ast,
@@ -570,7 +728,7 @@ fn evalComptimeInt(
     node: Ast.Node.Index,
     errors: *std.ArrayList(Error),
     err_msg: []const u8,
-) !?u64 {
+) std.mem.Allocator.Error!?u64 {
     const actual = if (ast.nodeTag(node) == .@"comptime") ast.nodeData(node).unary else node;
     switch (ast.nodeTag(actual)) {
         .number_literal => {
@@ -608,11 +766,50 @@ fn evalComptimeInt(
                     try errors.append(allocator, .{ .token = ast.nodeMainToken(actual), .message = "comptime int underflow" });
                     return null;
                 },
+                .asterisk => std.math.mul(u64, lhs, rhs) catch {
+                    try errors.append(allocator, .{ .token = ast.nodeMainToken(actual), .message = "comptime int overflow" });
+                    return null;
+                },
+                .slash => {
+                    if (rhs == 0) {
+                        try errors.append(allocator, .{ .token = ast.nodeMainToken(actual), .message = "comptime division by zero" });
+                        return null;
+                    }
+                    return lhs / rhs;
+                },
+                .percent => {
+                    if (rhs == 0) {
+                        try errors.append(allocator, .{ .token = ast.nodeMainToken(actual), .message = "comptime division by zero" });
+                        return null;
+                    }
+                    return lhs % rhs;
+                },
                 else => {
                     try errors.append(allocator, .{ .token = ast.nodeMainToken(actual), .message = "unsupported comptime operator" });
                     return null;
                 },
             };
+        },
+        .if_expr => {
+            const cond = try evalComptimeBool(allocator, ast, analysis, ast.nodeData(actual).if_expr.cond, errors, err_msg) orelse return null;
+            const branch = if (cond) ast.nodeData(actual).if_expr.then_expr else ast.nodeData(actual).if_expr.else_expr;
+            return evalComptimeInt(allocator, ast, analysis, branch, errors, err_msg);
+        },
+        .switch_expr => {
+            const cond_value = try evalComptimeInt(allocator, ast, analysis, ast.nodeData(actual).switch_expr.cond, errors, err_msg) orelse return null;
+            for (ast.listSlice(ast.nodeData(actual).switch_expr.cases)) |case_idx| {
+                const case_node: Ast.Node.Index = @enumFromInt(case_idx);
+                const case_data = ast.nodeData(case_node).switch_case;
+                const case_value = try evalComptimeInt(allocator, ast, analysis, case_data.value, errors, err_msg) orelse return null;
+                if (case_value == cond_value) {
+                    return evalComptimeInt(allocator, ast, analysis, case_data.expr, errors, err_msg);
+                }
+            }
+            if (ast.nodeData(actual).switch_expr.else_expr.unwrap()) |else_expr| {
+                return evalComptimeInt(allocator, ast, analysis, else_expr, errors, err_msg);
+            }
+            try errors.append(allocator, .{ .token = ast.nodeMainToken(actual), .message = "switch is missing else" });
+            return null;
         },
         else => {
             try errors.append(allocator, .{ .token = ast.nodeMainToken(actual), .message = err_msg });
