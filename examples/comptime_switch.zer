@@ -1,0 +1,21 @@
+const Sel = 1;
+const Width = switch (Sel) {
+    0 => 1,
+    1 => 4,
+    else => 8,
+};
+
+pub module ComptimeSwitch(
+    clk: input clock_posedge,
+    rst: input reset_async_low,
+) {
+    var r: @Logic(.unsigned, Width);
+
+    always_ff {
+        if_reset {
+            r = 0;
+        } else {
+            r += 1;
+        }
+    }
+}

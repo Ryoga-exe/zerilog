@@ -1,0 +1,27 @@
+const T = 4 * 2 + 0;
+const Wider = if (T > 4) 8 else 4;
+const Small = if (T <= 8) 1 else 2;
+const Which = switch (T) {
+    8 => 1,
+    else => 2,
+};
+
+pub module ComptimeOps(
+    clk: input clock_posedge,
+    rst: input reset_async_low,
+) {
+    var r: @Logic(.unsigned, T);
+    var w: @Logic(.unsigned, Wider);
+
+    always_ff {
+        if_reset {
+            r = 0;
+        } else {
+            r += 1;
+        }
+    }
+
+    comb {
+        w = r;
+    }
+}
