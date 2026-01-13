@@ -185,6 +185,24 @@ fn dumpNode(writer: anytype, ast: zerilog.Ast, node_index: zerilog.AstNode.Index
                 try dumpNode(writer, ast, else_index, indent + 1);
             }
         },
+        .if_expr => {
+            try dumpNode(writer, ast, node.data.if_expr.cond, indent + 1);
+            try dumpNode(writer, ast, node.data.if_expr.then_expr, indent + 1);
+            try dumpNode(writer, ast, node.data.if_expr.else_expr, indent + 1);
+        },
+        .switch_expr => {
+            try dumpNode(writer, ast, node.data.switch_expr.cond, indent + 1);
+            for (ast.listSlice(node.data.switch_expr.cases)) |child| {
+                try dumpNode(writer, ast, @enumFromInt(child), indent + 1);
+            }
+            if (node.data.switch_expr.else_expr.unwrap()) |else_idx| {
+                try dumpNode(writer, ast, else_idx, indent + 1);
+            }
+        },
+        .switch_case => {
+            try dumpNode(writer, ast, node.data.switch_case.value, indent + 1);
+            try dumpNode(writer, ast, node.data.switch_case.expr, indent + 1);
+        },
         .if_reset => {
             try dumpNode(writer, ast, node.data.if_reset.then_block, indent + 1);
             if (node.data.if_reset.else_block.unwrap()) |else_index| {

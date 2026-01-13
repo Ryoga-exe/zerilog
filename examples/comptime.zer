@@ -1,0 +1,19 @@
+const Clock = clock_posedge;
+const Reset = reset_async_low;
+const T = 4;
+const S = 4;
+
+pub module Counter(
+    clk: input Clock,
+    rst: input Reset,
+) {
+    var r: @Logic(.unsigned, T + S);
+
+    always_ff {
+        if_reset {
+            r = 0;
+        } else {
+            r += 1;
+        }
+    }
+}
